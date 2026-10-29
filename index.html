@@ -1,0 +1,998 @@
+<!doctype html><html><head><meta charset=utf8><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0b5c78"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Carnet d'entraîneur</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+/* Layout : liste des nageurs à gauche (sélecteur sur mobile), fiche du nageur à droite, façon tableau de chronométrage. */
+:root{
+  --bg:#f3f5f6; --surface:#ffffff; --sunk:#e8eced; --fg:#14232b; --muted:#5b6b73; --line:#d5dcdf;
+  --accent:#0b5c78; --accent-soft:#d9ebf1; --lane:#c2410c; --good:#15803d; --good-soft:#dcf2e3; --bad-soft:#fbe6d9;
+  --s1:#0b6e99; --s2:#d9480f; --s3:#2b8a3e; --s4:#9c36b5; --s5:#c08a00; --s6:#c2255c; --s7:#1971c2; --s8:#5c6b73;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e171b; --surface:#152229; --sunk:#1c2c34; --fg:#e3ebee; --muted:#93a5ad; --line:#2a3d46;
+  --accent:#5fb7d6; --accent-soft:#16384a; --lane:#f08a4b; --good:#5bd08a; --good-soft:#163a26; --bad-soft:#3d2414;
+  --s1:#4fb3e0; --s2:#ff8a4c; --s3:#5fcf7a; --s4:#cf7ff0; --s5:#f2c94c; --s6:#f06595; --s7:#74b3ff; --s8:#a3b4bc; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e171b; --surface:#152229; --sunk:#1c2c34; --fg:#e3ebee; --muted:#93a5ad; --line:#2a3d46;
+  --accent:#5fb7d6; --accent-soft:#16384a; --lane:#f08a4b; --good:#5bd08a; --good-soft:#163a26; --bad-soft:#3d2414;
+  --s1:#4fb3e0; --s2:#ff8a4c; --s3:#5fcf7a; --s4:#cf7ff0; --s5:#f2c94c; --s6:#f06595; --s7:#74b3ff; --s8:#a3b4bc; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+.pgrid{display:grid;grid-template-columns:240px minmax(0,1fr);gap:20px;align-items:start}
+.chips{display:flex;flex-direction:column;gap:2px}
+.chip{display:flex;align-items:center;gap:8px;font:inherit;font-size:14px;text-align:left;border:0;background:transparent;color:var(--fg);padding:4px 8px;border-radius:6px;cursor:pointer}
+.chip:hover{background:var(--sunk)}
+.chip i{width:12px;height:12px;border-radius:3px;border:1.5px solid var(--line);flex:none}
+.chip[aria-pressed="true"]{font-weight:600}
+.minis{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.minis button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:2px 10px;cursor:pointer}
+.ctl{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin-bottom:12px}
+.ctl label.l{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-right:6px}
+.mchk{display:inline-flex;gap:6px;align-items:center;font-size:14px;margin-right:10px;cursor:pointer}
+.mchk svg{flex:none}
+.ctl select{font:inherit;font-size:14px;padding:5px 8px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+#progChart{padding:12px 8px 6px}
+#progChart svg text{font-size:12px}
+#progChart .pt{cursor:default}
+.ptip{position:fixed;pointer-events:none;background:var(--fg);color:var(--bg);font-size:13px;padding:6px 9px;border-radius:6px;line-height:1.35;z-index:5;max-width:260px}
+@media (max-width:760px){.pgrid{grid-template-columns:minmax(0,1fr)}.chips{flex-direction:row;flex-wrap:wrap}}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.45;padding-inline:16px;padding-block:0 40px}
+.num{font-variant-numeric:tabular-nums}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-block:16px;border-bottom:1px solid var(--line);margin-bottom:16px}
+h1{font-family:var(--display);font-weight:700;font-size:26px;letter-spacing:.01em;margin:0;text-wrap:balance}
+h1 small{font-family:var(--body);font-weight:500;font-size:13px;color:var(--muted);margin-left:8px;letter-spacing:0}
+.tabs,.seg{display:inline-flex;background:var(--sunk);border-radius:8px;padding:3px;gap:2px}
+.tabs button,.seg button{font:inherit;font-size:14px;font-weight:500;border:0;background:transparent;color:var(--muted);padding:6px 12px;border-radius:6px;cursor:pointer}
+.tabs button[aria-pressed="true"],.seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+button:focus-visible,select:focus-visible,summary:focus-visible,.row:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn{font:inherit;font-weight:600;font-size:14px;border:1px solid var(--accent);background:var(--accent);color:var(--surface);padding:7px 14px;border-radius:7px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:default}
+.wrap{display:grid;grid-template-columns:240px minmax(0,1fr);gap:20px;align-items:start}
+aside{position:sticky;top:env(safe-area-inset-top,0px);max-height:100vh;overflow:auto;padding-bottom:16px}
+.grp{font-family:var(--display);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 0 4px}
+.grp:first-child{margin-top:0}
+.sw{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;font:inherit;font-size:14px;background:transparent;border:0;border-radius:6px;padding:5px 8px;color:var(--fg);cursor:pointer}
+.sw:hover{background:var(--sunk)}
+.sw[aria-current="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.sw.empty{color:var(--muted)}
+.sw .pts{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
+#athSelect{display:none;width:100%;font:inherit;padding:8px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--fg);margin-bottom:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.ahead{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:14px}
+.ahead h2{font-family:var(--display);font-size:34px;font-weight:700;margin:0;line-height:1}
+.ahead .meta{color:var(--muted);font-size:14px;margin-top:6px;display:flex;gap:12px;flex-wrap:wrap}
+.ahead a{color:var(--accent)}
+.kpis{display:flex;gap:18px;flex-wrap:wrap}
+.kpi{min-width:84px}
+.kpi b{display:block;font-family:var(--display);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.filters{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:14px}
+.filters label{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-right:6px}
+.tblwrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+.ev{font-weight:600}
+.time{font-family:var(--display);font-size:18px;font-weight:600}
+.row{cursor:pointer}
+.row:hover td{background:var(--sunk)}
+.row.open td{background:var(--accent-soft)}
+.chev{color:var(--muted);transition:transform .15s}
+.row.open .chev{transform:rotate(90deg)}
+.ptsbar{display:inline-flex;align-items:center;gap:8px}
+.ptsbar i{display:inline-block;height:6px;border-radius:3px;background:var(--accent);opacity:.75}
+.muted{color:var(--muted)}
+.pill{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.04em;padding:1px 7px;border-radius:999px;background:var(--good-soft);color:var(--good);text-transform:uppercase}
+.pill.dq{background:var(--sunk);color:var(--lane)}
+.detail td{background:var(--surface);padding:14px 12px 18px;white-space:normal}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.dgrid h4{margin:0 0 8px;font-family:var(--display);font-size:16px;font-weight:600;letter-spacing:.02em}
+.splits td,.splits th{padding:4px 8px;font-size:14px}
+.pace{display:block;height:8px;border-radius:2px;background:var(--accent)}
+.pace.slow{background:var(--lane)}
+.legend{font-size:12px;color:var(--muted);margin-top:6px}
+svg text{fill:var(--muted);font-family:var(--body);font-size:11px}
+section+section{margin-top:22px}
+.sh{font-family:var(--display);font-weight:600;font-size:20px;margin:0 0 8px}
+.empty-state{padding:28px;text-align:center;color:var(--muted)}
+.empty-state b{display:block;color:var(--fg);font-size:17px;margin-bottom:6px}
+#importPanel{margin-bottom:16px;padding:16px}
+#importPanel h3{margin:0 0 8px;font-family:var(--display);font-size:20px}
+.unk{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0}
+.unk label{font-size:14px;display:inline-flex;gap:6px;align-items:center}
+.msg{font-size:14px;margin-top:8px}
+.msg.err{color:var(--lane)}
+.tgrid th.c,.tgrid td.c{text-align:center}
+.tgrid th.sub{font-size:11px;padding-top:0}
+.tgrid td{padding:5px 6px;vertical-align:top}
+.tgrid td.nm{padding-left:12px;padding-top:9px;font-weight:500}
+.tin{width:76px;font:inherit;font-variant-numeric:tabular-nums;text-align:right;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.tin.small{width:54px}
+.tin:focus{outline:2px solid var(--accent);outline-offset:0;background:var(--surface)}
+.tin.bad{border-color:var(--lane);background:var(--surface)}
+.tin::placeholder{color:var(--muted);opacity:.5}
+.tsel{font:inherit;font-size:14px;padding:5px 8px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.pc{font-size:11px;color:var(--muted);text-align:right;margin-top:2px}
+.rtab td{vertical-align:top}
+.rtab .dlt{font-variant-numeric:tabular-nums;font-weight:600}
+.rtab tr.foot td{background:var(--sunk);font-weight:600}
+.rtab th.sub{font-size:11px;padding-top:0}
+td.pbc{color:var(--good);font-weight:600}
+@media (max-width:760px){
+  .wrap{grid-template-columns:minmax(0,1fr)}
+  aside{display:none}
+  #athSelect{display:block}
+  .hide-sm{display:none}
+  .ahead h2{font-size:28px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* Onglet compétition : cartes de course en grille, étiquettes d'exécution tactiles (cible ≥ 32 px pour le bord du bassin). */
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:10px;margin:8px 0 18px}
+.ccard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:9px;min-width:0}
+.ccard h4{margin:0;font-family:var(--display);font-size:19px;font-weight:600;display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.ccard h4 small{font-family:var(--body);font-size:12px;font-weight:500;color:var(--muted)}
+.nums{display:flex;flex-wrap:wrap;gap:4px 20px;margin:0}
+.nums dt{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.nums dd{margin:0;font-family:var(--display);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2}
+.nums dd small{display:block;font-family:var(--body);font-size:11px;font-weight:400;color:var(--muted)}
+.nums .res dd{color:var(--accent)}
+details.spl summary{font-size:13px;color:var(--accent);cursor:pointer}
+details.spl .splits{width:auto;margin-top:4px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font:inherit;font-size:13px;font-weight:500;border:1px solid var(--line);background:var(--bg);color:var(--muted);border-radius:999px;padding:5px 12px;min-height:34px;cursor:pointer}
+.tag.plus{background:var(--good-soft);border-color:var(--good);color:var(--good);font-weight:600}
+.tag.minus{background:var(--bad-soft);border-color:var(--lane);color:var(--lane);font-weight:600}
+.tag:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ntxt{display:block;width:100%;font:inherit;font-size:15px;line-height:1.4;resize:none;overflow:hidden;min-height:38px;padding:7px 9px;margin-top:6px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--fg)}
+.ntxt:focus{outline:2px solid var(--accent);outline-offset:0;background:var(--surface)}
+.ntxt::placeholder{color:var(--muted);opacity:.6}
+.evh{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline;padding-top:8px;border-top:1px solid var(--line)}
+.evh b{font-family:var(--display);font-weight:600;font-size:14px;color:var(--muted);letter-spacing:.03em}
+.evh .evn{font-family:var(--display);font-weight:700;font-size:19px}
+.sess+.sess{margin-top:24px}
+.shm{font-family:var(--body);font-size:14px;font-weight:400}
+.daytitle::first-letter{text-transform:uppercase}
+.sesslbl{grid-column:1/-1;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-top:4px}
+.dayseg{flex-wrap:wrap}
+.leg{border-top:1px dashed var(--line);padding-top:8px}
+.leg .who{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 10px;font-size:14px}
+.nline{display:inline-flex;flex-wrap:wrap;gap:4px 8px;align-items:center;font-size:13px}
+.tg{font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px}
+.tg.plus{background:var(--good-soft);color:var(--good)}
+.tg.minus{background:var(--bad-soft);color:var(--lane)}
+tr.nrow td{white-space:normal;padding-top:0}
+tr.hasnote td{border-bottom:0}
+.cact{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.cbtn{font:inherit;font-size:13px;font-weight:500;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:7px;padding:5px 12px;min-height:34px;cursor:pointer}
+.cbtn[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.cbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ccard.dns h4{color:var(--muted);text-decoration:line-through}
+.ccard.fin{border-color:var(--accent)}
+.tin.rt{width:96px;font-family:var(--display);font-size:17px;font-weight:600}
+</style>
+
+<header class="top">
+  <h1>Carnet d'entraîneur <small>Lausanne Aquatique · Elite &amp; Espoir Regio</small></h1>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <div class="tabs" role="group" aria-label="Vue">
+      <button id="tabComp" aria-pressed="true">Compétition</button>
+      <button id="tabTests" aria-pressed="false">Tests</button>
+      <button id="tabAth" aria-pressed="false">Nageur</button>
+    </div>
+    <button class="btn ghost" id="importBtn">Importer un Lenex</button>
+    <input type="file" id="fileIn" accept=".lxf,.lef,.xml" hidden>
+  </div>
+</header>
+
+<div id="importPanel" class="card" hidden></div>
+
+<div class="filters" id="filters" hidden>
+  <span><label>Bassin</label><span class="seg" role="group" aria-label="Bassin">
+    <button data-course="SCM" aria-pressed="true">25 m</button><button data-course="LCM" aria-pressed="false">50 m</button></span></span>
+  <span id="periodWrap"><label>Période</label><span class="seg" role="group" aria-label="Période">
+    <button data-period="season" aria-pressed="true" id="seasonBtn">Saison</button><button data-period="prev" aria-pressed="false" id="prevBtn">Saison passée</button><button data-period="2y" aria-pressed="false">2 ans</button><button data-period="all" aria-pressed="false">À vie</button></span></span>
+  <span id="sortWrap"><label>Tri</label><span class="seg" role="group" aria-label="Tri">
+    <button data-sort="event" aria-pressed="true">Épreuve</button><button data-sort="points" aria-pressed="false">Points</button></span></span>
+</div>
+
+<div id="viewAth" class="wrap" hidden>
+  <aside id="side"></aside>
+  <main id="main" style="min-width:0">
+    <select id="athSelect" aria-label="Nageur"></select>
+    <div id="athBody"><div class="card empty-state"><b>Chargement des nageurs…</b>Les temps apparaissent dès que la base répond.</div></div>
+  </main>
+</div>
+<div id="viewTests" hidden></div>
+<div id="viewComp"><div class="card empty-state"><b>Chargement de la compétition…</b>La feuille de route apparaît dès que la base répond.</div></div>
+<div class="ptip" id="ptip" hidden></div>
+
+<script src="store.js"></script>
+<script src="app.js"></script>
+<script>
+const STROKES={FREE:"NL",BACK:"Dos",BREAST:"Brasse",FLY:"Pap",MEDLEY:"4N"};
+const STROKE_ORDER=["FREE","BACK","BREAST","FLY","MEDLEY"];
+const STROKE_LONG={FREE:"Nage libre",BACK:"Dos",BREAST:"Brasse",FLY:"Papillon",MEDLEY:"4 nages"};
+/* Temps de base AQUA en vigueur : SCM 2026 (01.09.2026–31.08.2027), LCM 2026 (01.01–31.12.2026), en centièmes. */
+const BASE={"LCM|M|50|FREE":2091,"LCM|M|100|FREE":4640,"LCM|M|200|FREE":10200,"LCM|M|400|FREE":21996,"LCM|M|800|FREE":45212,"LCM|M|1500|FREE":87067,"LCM|M|50|BACK":2355,"LCM|M|100|BACK":5160,"LCM|M|200|BACK":11192,"LCM|M|50|BREAST":2595,"LCM|M|100|BREAST":5688,"LCM|M|200|BREAST":12548,"LCM|M|50|FLY":2227,"LCM|M|100|FLY":4945,"LCM|M|200|FLY":11034,"LCM|M|200|MEDLEY":11269,"LCM|M|400|MEDLEY":24250,"LCM|F|50|FREE":2361,"LCM|F|100|FREE":5171,"LCM|F|200|FREE":11223,"LCM|F|400|FREE":23418,"LCM|F|800|FREE":48412,"LCM|F|1500|FREE":92048,"LCM|F|50|BACK":2686,"LCM|F|100|BACK":5713,"LCM|F|200|BACK":12314,"LCM|F|50|BREAST":2916,"LCM|F|100|BREAST":6413,"LCM|F|200|BREAST":13755,"LCM|F|50|FLY":2443,"LCM|F|100|FLY":5460,"LCM|F|200|FLY":12181,"LCM|F|200|MEDLEY":12570,"LCM|F|400|MEDLEY":26365,"SCM|M|50|FREE":1990,"SCM|F|50|FREE":2283,"SCM|M|100|FREE":4484,"SCM|F|100|FREE":4993,"SCM|M|200|FREE":9861,"SCM|F|200|FREE":10936,"SCM|M|400|FREE":21225,"SCM|F|400|FREE":23025,"SCM|M|800|FREE":44046,"SCM|F|800|FREE":47400,"SCM|M|1500|FREE":84688,"SCM|F|1500|FREE":90824,"SCM|M|50|BACK":2211,"SCM|F|50|BACK":2523,"SCM|M|100|BACK":4816,"SCM|F|100|BACK":5402,"SCM|M|200|BACK":10512,"SCM|F|200|BACK":11733,"SCM|M|50|BREAST":2495,"SCM|F|50|BREAST":2837,"SCM|M|100|BREAST":5528,"SCM|F|100|BREAST":6236,"SCM|M|200|BREAST":11952,"SCM|F|200|BREAST":13250,"SCM|M|50|FLY":2132,"SCM|F|50|FLY":2372,"SCM|M|100|FLY":4768,"SCM|F|100|FLY":5271,"SCM|M|200|FLY":10685,"SCM|F|200|FLY":11932,"SCM|M|100|MEDLEY":4928,"SCM|F|100|MEDLEY":5511,"SCM|M|200|MEDLEY":10888,"SCM|F|200|MEDLEY":12163,"SCM|M|400|MEDLEY":23481,"SCM|F|400|MEDLEY":25548};
+function aquaPts(g,c,d,s,t){const b=BASE[`${c}|${g}|${d}|${s}`];return b&&t?Math.floor(1000*Math.pow(b/t,3)):0}
+const S={athletes:{},swims:[],sel:null,course:"SCM",period:"season",sort:"event",view:"comp",open:null,db:null};
+try{const v=JSON.parse(localStorage.getItem("ct-ui")||"{}");Object.assign(S,{course:v.course||S.course,period:v.period||S.period,sort:v.sort||S.sort,sel:v.sel||null})}catch(e){}
+function saveUi(){try{localStorage.setItem("ct-ui",JSON.stringify({course:S.course,period:S.period,sort:S.sort,sel:S.sel}))}catch(e){}}
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const slug=s=>(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+function fmt(cs){if(cs==null)return"—";const m=Math.floor(cs/6000),s=(cs%6000)/100;return m?`${m}:${s.toFixed(2).padStart(5,"0")}`:s.toFixed(2)}
+function fmtDate(d){if(!d)return"";const[y,m,dd]=d.split("-");return`${dd}.${m}.${y}`}
+const evName=(d,s)=>`${d} ${STROKES[s]||s}`;
+const evKey=r=>r.d+"-"+r.s;
+function evSortKey(k){const[d,s]=k.split("-");return STROKE_ORDER.indexOf(s)*10000+ +d}
+
+function today(){return new Date()}
+function seasonStart(){const t=today(),y=t.getMonth()>=7?t.getFullYear():t.getFullYear()-1;return`${y}-08-01`}
+function seasonLabel(){const y=+seasonStart().slice(0,4);return`${String(y).slice(2)}/${String(y+1).slice(2)}`}
+function periodRange(p){const ss=seasonStart(),y=+ss.slice(0,4);
+  if(p==="season")return[ss,"9999"];if(p==="prev")return[`${y-1}-08-01`,ss];
+  if(p==="2y"){const t=today();t.setFullYear(t.getFullYear()-2);return[t.toISOString().slice(0,10),"9999"]}return["0000","9999"]}
+$("seasonBtn").textContent="Saison "+seasonLabel();
+{const y=+seasonStart().slice(0,4);$("prevBtn").textContent=`Saison ${String(y-1).slice(2)}/${String(y).slice(2)}`}
+
+/* ---------- données dérivées ---------- */
+function racesOf(key){
+  const out=[];
+  for(const sw of S.swims){if(sw.athlete!==key)continue;
+    for(const r of sw.results||[])out.push({...r,meet:sw.meet})}
+  return out;
+}
+const valid=r=>r.t!=null&&!r.st;
+function filtered(races){const[from,to]=periodRange(S.period);return races.filter(r=>r.c===S.course&&r.date>=from&&r.date<to)}
+function bests(races){
+  const m={};
+  for(const r of races){if(!valid(r))continue;const k=evKey(r);if(!m[k]||r.t<m[k].t||(r.t===m[k].t&&r.date<m[k].date))m[k]=r}
+  return m;
+}
+function maxPts(races){let b=null;for(const r of races)if(valid(r)&&(!b||r.p>b.p))b=r;return b}
+function age(birth,date){if(!birth)return null;return +date.slice(0,4)-+birth.slice(0,4)}
+
+/* ---------- rendu : liste ---------- */
+function rosterList(){
+  const groups={Elite:[],Espoir:[],Autres:[]};
+  for(const[k,a]of Object.entries(S.athletes)){if(a.mine===false)continue;(groups[a.group]||groups.Autres).push([k,a])}
+  for(const g in groups)groups[g].sort((x,y)=>x[1].last.localeCompare(y[1].last,"fr"));
+  return groups;
+}
+function renderSide(){
+  const groups=rosterList();let html="",opts="";
+  for(const[g,list]of Object.entries(groups)){if(!list.length)continue;
+    html+=`<div class="grp">${g==="Autres"?"Autres":g+" Regio"}</div>`;opts+=`<optgroup label="${esc(g)}">`;
+    for(const[k,a]of list){const best=maxPts(filtered(racesOf(k)));
+      html+=`<button class="sw${best?"":" empty"}" data-k="${esc(k)}" aria-current="${k===S.sel}"><span>${esc(a.first)} ${esc(a.last)}</span><span class="pts">${best?best.p:""}</span></button>`;
+      opts+=`<option value="${esc(k)}"${k===S.sel?" selected":""}>${esc(a.first)} ${esc(a.last)}${best?" · "+best.p+" pts":""}</option>`}
+    opts+="</optgroup>"}
+  $("side").innerHTML=html;$("athSelect").innerHTML=opts;
+}
+$("side").addEventListener("click",e=>{const b=e.target.closest(".sw");if(b){S.sel=b.dataset.k;S.open=null;saveUi();render()}});
+$("athSelect").addEventListener("change",e=>{S.sel=e.target.value;S.open=null;saveUi();render()});
+
+/* ---------- rendu : fiche nageur ---------- */
+function renderAth(){
+  const a=S.athletes[S.sel];
+  if(!a){$("athBody").innerHTML=`<div class="card empty-state"><b>Aucun nageur sélectionné</b>Choisis un nageur dans la liste.</div>`;return}
+  const all=racesOf(S.sel),races=filtered(all),b=bests(races);
+  const keys=Object.keys(b);
+  if(S.sort==="points")keys.sort((x,y)=>b[y].p-b[x].p);else keys.sort((x,y)=>evSortKey(x)-evSortKey(y));
+  const top=maxPts(races),nMeets=new Set(races.map(r=>r.meet.key)).size;
+  const sr=a.swrid?`<a href="https://www.swimrankings.net/index.php?page=athleteDetail&athleteId=${esc(a.swrid)}" target="_blank" rel="noopener">swimrankings ↗</a>`:"";
+  const ageNow=a.birth?`${a.birth.slice(0,4)} · ${today().getFullYear()-+a.birth.slice(0,4)} ans cette année`:"année de naissance inconnue";
+  let html=`<div class="ahead"><div><h2>${esc(a.first)} ${esc(a.last)}</h2>
+    <div class="meta"><span>${esc(a.group||"")} Regio</span><span>${ageNow}</span>${sr}</div></div>
+    <div class="kpis"><div class="kpi"><b>${top?top.p:"—"}</b><span>Meilleurs pts</span></div>
+    <div class="kpi"><b>${top?evName(top.d,top.s):"—"}</b><span>Meilleure course</span></div>
+    <div class="kpi"><b>${races.filter(valid).length}</b><span>Courses · ${nMeets} compét.</span></div></div></div>`;
+  if(!all.length){html+=`<div class="card empty-state"><b>Aucun résultat importé</b>Les temps de ${esc(a.first)} apparaîtront après l'import d'un Lenex où il ou elle a nagé.</div>`;$("athBody").innerHTML=html;return}
+  if(!keys.length){html+=`<div class="card empty-state"><b>Aucun temps pour ce filtre</b>Pas de course en ${S.course==="SCM"?"25 m":"50 m"} sur la période choisie. Essaie l'autre bassin ou « À vie ».</div>`;$("athBody").innerHTML=html;return}
+  const maxP=Math.max(...keys.map(k=>b[k].p),1);
+  html+=`<section><h3 class="sh">Meilleurs temps</h3><div class="card tblwrap"><table><thead><tr><th>Épreuve</th><th class="r">Temps</th><th>Points</th><th>Date</th><th class="hide-sm">Compétition</th><th class="hide-sm">Lieu</th><th></th></tr></thead><tbody>`;
+  for(const k of keys){const r=b[k],open=S.open===k;
+    html+=`<tr class="row${open?" open":""}" data-ev="${k}" tabindex="0" aria-expanded="${open}"><td class="ev">${evName(r.d,r.s)}</td><td class="r time">${fmt(r.t)}</td>
+      <td><span class="ptsbar"><span class="num">${r.p||"—"}</span><i style="width:${Math.round(60*r.p/maxP)}px"></i></span></td>
+      <td>${fmtDate(r.date)}</td><td class="hide-sm">${esc(r.meet.name)}</td><td class="hide-sm muted">${esc(r.meet.city)}</td><td class="chev">›</td></tr>`;
+    if(open)html+=`<tr class="detail"><td colspan="7">${detail(r,races.filter(x=>evKey(x)===k))}</td></tr>`}
+  html+=`</tbody></table></div><div class="legend">Clique une épreuve pour voir les temps de passage et toutes les courses de la période. Points AQUA (ex-FINA) au barème en vigueur : 25 m 2026-27, 50 m 2026. Historique Team Manager recalculé sur ce même barème.</div></section>`;
+  html+=recent(races,b);
+  $("athBody").innerHTML=html;
+}
+function detail(r,hist){
+  let sp="";
+  if(r.sp&&r.sp.length){
+    const pts=[...r.sp.filter(x=>x[0]<r.d),[r.d,r.t]];let prevD=0,prevT=0;const rows=[];
+    for(const[d,t]of pts){const seg=t-prevT,len=d-prevD;rows.push({d,t,seg,len,per50:seg/(len/50)});prevD=d;prevT=t}
+    const p=rows.map(x=>x.per50),mn=Math.min(...p),mx=Math.max(...p),med=[...p].sort((a,b)=>a-b)[Math.floor(p.length/2)];
+    sp=`<table class="splits"><thead><tr><th>Dist.</th><th class="r">Passage</th><th class="r">Partiel</th><th>Allure /50</th></tr></thead><tbody>`+
+      rows.map(x=>`<tr><td>${x.d} m</td><td class="r">${fmt(x.t)}</td><td class="r">${fmt(x.seg)}${x.len!==50?` <span class="muted">(${x.len})</span>`:""}</td>
+      <td style="width:42%"><span class="pace${x.per50>med*1.03?" slow":""}" style="width:${mx===mn?100:Math.round(35+65*(x.per50-mn)/(mx-mn))}%" title="${fmt(Math.round(x.per50))} /50"></span></td></tr>`).join("")+
+      `</tbody></table><div class="legend">Barre plus longue = segment plus lent (ramené au 50 m). Orange : plus de 3 % au-dessus de l'allure médiane.</div>`;
+  }else sp=`<p class="muted">Pas de temps de passage dans le Lenex pour cette course.</p>`;
+  const h=[...hist].sort((a,b)=>a.date.localeCompare(b.date));
+  const rows=h.slice().reverse().map(x=>{const n=noteFor(S.sel,x);return`<tr${n?' class="hasnote"':""}><td>${fmtDate(x.date)}</td><td class="r">${x.st?`<span class="pill dq">${esc(x.st)}</span>`:fmt(x.t)}</td><td class="r">${x.p||""}</td><td class="muted">${esc(x.meet.city)}${x.r&&x.r!=="TIM"?" · "+esc(roundName(x.r)):""}</td></tr>${n?`<tr class="nrow"><td></td><td colspan="3">${noteLine(n)}</td></tr>`:""}`}).join("");
+  return `<div class="dgrid"><div><h4>Temps de passage · ${fmt(r.t)} (${fmtDate(r.date)})</h4>${sp}</div>
+    <div><h4>Toutes les courses (${h.length})</h4>${chart(h.filter(valid))}<table class="splits"><tbody>${rows}</tbody></table></div></div>`;
+}
+function roundName(r){return{PRE:"séries",SEM:"demi",FIN:"finale",FHT:"séries",TIM:"",SOP:"barrage",SOS:"barrage"}[r]||r}
+function chart(h){
+  if(h.length<2)return"";
+  const W=320,H=110,P={l:44,r:10,t:10,b:20};const ts=h.map(x=>x.t),mn=Math.min(...ts),mx=Math.max(...ts),span=Math.max(mx-mn,1);
+  const d0=Date.parse(h[0].date),d1=Date.parse(h[h.length-1].date),ds=Math.max(d1-d0,1);
+  const X=d=>P.l+(W-P.l-P.r)*(Date.parse(d)-d0)/ds,Y=t=>P.t+(H-P.t-P.b)*(t-mn)/span;
+  const path=h.map((x,i)=>(i?"L":"M")+X(x.date).toFixed(1)+","+Y(x.t).toFixed(1)).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block;margin-bottom:6px" role="img" aria-label="Progression des temps">
+   <line x1="${P.l}" x2="${W-P.r}" y1="${Y(mn)}" y2="${Y(mn)}" stroke="var(--line)"/><line x1="${P.l}" x2="${W-P.r}" y1="${Y(mx)}" y2="${Y(mx)}" stroke="var(--line)"/>
+   <text x="${P.l-6}" y="${Y(mn)+4}" text-anchor="end">${fmt(mn)}</text><text x="${P.l-6}" y="${Y(mx)+4}" text-anchor="end">${fmt(mx)}</text>
+   <text x="${P.l}" y="${H-4}">${fmtDate(h[0].date)}</text><text x="${W-P.r}" y="${H-4}" text-anchor="end">${fmtDate(h[h.length-1].date)}</text>
+   <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+   ${h.map(x=>`<circle cx="${X(x.date).toFixed(1)}" cy="${Y(x.t).toFixed(1)}" r="${x.t===mn?4:2.5}" fill="${x.t===mn?"var(--good)":"var(--accent)"}"/>`).join("")}</svg>
+   <div class="legend" style="margin-top:0">Plus haut = plus rapide. Point vert : meilleur temps.</div>`;
+}
+function recent(races,b){
+  const byMeet={};for(const r of races)(byMeet[r.meet.key]=byMeet[r.meet.key]||{meet:r.meet,rs:[]}).rs.push(r);
+  const meets=Object.values(byMeet).sort((x,y)=>y.meet.date.localeCompare(x.meet.date)).slice(0,6);
+  let h=`<section><h3 class="sh">Courses par compétition</h3><div class="card tblwrap"><table><thead><tr><th>Date</th><th>Épreuve</th><th class="r">Temps</th><th class="r">Points</th><th></th></tr></thead><tbody>`;
+  for(const m of meets){
+    h+=`<tr><td colspan="5" style="background:var(--sunk);font-weight:600">${esc(m.meet.name)} <span class="muted" style="font-weight:400">· ${esc(m.meet.city)} · ${fmtDate(m.meet.date)}</span></td></tr>`;
+    const used=new Set();
+    for(const r of m.rs.sort((x,y)=>evSortKey(evKey(x))-evSortKey(evKey(y)))){const pb=valid(r)&&b[evKey(r)]===r,n=noteFor(S.sel,r);if(n)used.add(n);
+      h+=`<tr${n?' class="hasnote"':""}><td class="muted">${fmtDate(r.date)}</td><td class="ev">${evName(r.d,r.s)}${r.r&&r.r!=="TIM"?` <span class="muted">${roundName(r.r)}</span>`:""}</td><td class="r time">${r.st?`<span class="pill dq">${esc(r.st)}</span>`:fmt(r.t)}</td><td class="r">${r.p||""}</td><td>${pb?'<span class="pill">MT</span>':""}</td></tr>`;
+      if(n)h+=`<tr class="nrow"><td></td><td colspan="4">${noteLine(n)}</td></tr>`}
+    /* Notes sans résultat rattaché : relais, forfaits, ou compétition dont le Lenex des résultats n'a pas la même date. */
+    const to=addDays(m.meet.date,5);
+    for(const n of Object.values(C.notes))if(n.a===S.sel&&!used.has(n)&&n.date>=m.meet.date&&n.date<=to&&(n.relay||!m.rs.some(r=>noteFor(S.sel,r)===n)))
+      h+=`<tr class="nrow"><td class="muted">${fmtDate(n.date)}</td><td colspan="4"><b>${esc(n.ev||evName(n.d,n.s))}</b> ${noteLine(n)}</td></tr>`}
+  return h+`</tbody></table></div><div class="legend">MT = meilleur temps de la période sélectionnée. 6 compétitions les plus récentes. Les étiquettes et notes viennent de l'onglet Compétition.</div></section>`;
+}
+$("athBody").addEventListener("click",e=>{const tr=e.target.closest(".row");if(!tr)return;S.open=S.open===tr.dataset.ev?null:tr.dataset.ev;renderAth()});
+$("athBody").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.classList.contains("row")){e.preventDefault();e.target.click()}});
+
+/* ---------- tests d'entraînement ----------
+   Collection "tests" : un document par séance et par type de test, id = AAAA-MM-JJ__type.
+   { date, type: "s25"|"t400"|"t600", course: "SCM"|"LCM", note, entries: { <nageur>: { champ: valeur } } }
+   s25 : FLY_eau, FLY_plot, BACK_eau, BACK_plot, BREAST_…, FREE_… (centièmes)
+   t400 : r1..r4 (centièmes), l1..l4 (lactate mmol/L), h1..h4 (FC)   ·   t600 : s1 = passage 200, s2 = passage 400, t = temps final 600 (centièmes, cumulés) */
+const TTYPES={s25:"25 m sprint",t400:"4 × 400 NL",t600:"600 NL régulier"};
+/* 600 : trois 200 tirés des passages cumulés ; régularité = écart entre le 200 le plus rapide et le plus lent. */
+function laps600(e){return[e.s1||null,e.s1&&e.s2?e.s2-e.s1:null,e.s2&&e.t?e.t-e.s2:null]}
+function spread600(e){const l=laps600(e);return l.every(Boolean)?Math.max(...l)-Math.min(...l):null}
+function spreadSpan(d){if(d==null)return"";const c=d<=200?"var(--good)":d<=500?"var(--fg)":"var(--lane)";return`<span class="dlt" style="color:${c}">${fmt(d)}</span>`}
+function lapsHtml(e){const l=laps600(e);return l.map((x,i)=>x?`${fmt(x)}${i&&l[0]?" "+dSpan(x-l[0],true):""}`:"—").join(" · ")}
+const T25=[["FLY","Pap"],["BACK","Dos"],["BREAST","Brasse"],["FREE","NL"]];
+const T={sessions:[],cur:null,group:"all",hist:null,showLac:true,confirmDel:false,status:""};
+try{Object.assign(T,JSON.parse(localStorage.getItem("ct-tests")||"{}"),{sessions:[],confirmDel:false,status:""})}catch(e){}
+function saveT(){try{localStorage.setItem("ct-tests",JSON.stringify({cur:T.cur,group:T.group,hist:T.hist,showLac:T.showLac,mode:T.mode,rtype:T.rtype,cmpA:T.cmpA,cmpB:T.cmpB}))}catch(e){}}
+function parseTime(s){
+  s=String(s).trim().replace(/,/g,".").replace(/'/g,":");if(!s)return null;let m;
+  if((m=s.match(/^(\d+)[:.](\d{1,2})\.(\d{1,2})$/)))return(+m[1]*60+ +m[2])*100+ +m[3].padEnd(2,"0");
+  if((m=s.match(/^(\d+):(\d{1,2})$/)))return(+m[1]*60+ +m[2])*100;
+  if((m=s.match(/^(\d+)(?:\.(\d{1,2}))?$/)))return +m[1]*100+ +(m[2]||"0").padEnd(2,"0");
+  return NaN;
+}
+const pace100=(cs,dist)=>cs?fmt(Math.round(cs*100/dist)):"";
+function fieldKind(f){return/^[lh]\d$/.test(f)?(f[0]==="l"?"lac":"hr"):"time"}
+function parseField(f,v){v=String(v).trim();if(!v)return null;const k=fieldKind(f);
+  if(k==="time"){const t=parseTime(v);if(!(t>0))return NaN;
+    if(/^r\d$/.test(f))return t>=18000&&t<=60000?t:NaN;   // 400 : entre 3:00 et 10:00
+    if(f==="s1")return t>=10000&&t<=30000?t:NaN;         // passage 200 : entre 1:40 et 5:00
+    if(f==="s2")return t>=20000&&t<=60000?t:NaN;         // passage 400 : entre 3:20 et 10:00
+    if(f==="t")return t>=30000&&t<=90000?t:NaN;          // 600 : entre 5:00 et 15:00
+    return t>=800&&t<=6000?t:NaN}                          // 25 m : entre 8 et 60 s
+  const n=+v.replace(",",".");if(k==="lac")return n>=0&&n<=30?Math.round(n*10)/10:NaN;return Number.isInteger(n)&&n>=40&&n<=230?n:NaN}
+function showField(f,v){if(v==null)return"";return fieldKind(f)==="time"?fmt(v):String(v)}
+const writeQ={};
+function writeEntry(docId,k,f,v){
+  const run=()=>S.db.collection("tests").doc(docId).update({entries:{[k]:{[f]:v}}});
+  writeQ[docId]=(writeQ[docId]||Promise.resolve()).then(run).then(()=>setStatus("Enregistré"),err=>setStatus("Échec de l'enregistrement ("+(err.code||"erreur")+"). Ressaisis la valeur.",true));
+}
+function setStatus(t,bad){T.status=t;const el=$("tStatus");if(el){el.textContent=t;el.className="msg"+(bad?" err":"")}}
+function testRoster(){const g=rosterList();return(T.group==="all"?[...g.Elite,...g.Espoir,...g.Autres]:g[T.group]||[])}
+/* Écarts : négatif = plus rapide (vert), positif = plus lent (orange). */
+function dSpan(d,small){if(d==null||Number.isNaN(d))return"";const c=d<0?"var(--good)":d>0?"var(--lane)":"var(--muted)";
+  return`<span class="dlt" style="color:${c}${small?";font-size:11px":""}">${d<0?"−":d>0?"+":"±"}${fmt(Math.abs(d))}</span>`}
+/* Progression d'un 400 au suivant : ▼ = plus rapide (vert, attendu dans un test progressif), ▲ = plus lent (orange). */
+function stepSpan(prev,cur,small){const g=prev-cur,c=g>0?"var(--good)":g<0?"var(--lane)":"var(--muted)";
+  return`<span class="dlt" style="color:${c}${small?";font-size:11px":""}">${g>0?"▼ ":g<0?"▲ ":"= "}${g?fmt(Math.abs(g)):""}</span>`}
+function repCalc(e,i){const t=e["r"+i];if(!t)return"";const p=e["r"+(i-1)];
+  return`${pace100(t,400)} /100${i>1&&p?" · "+stepSpan(p,t,true):""}`}
+const modeBar=()=>`<span class="seg" role="group" aria-label="Mode"><button data-tm="entry" aria-pressed="${T.mode!=="results"}">Saisie</button><button data-tm="results" aria-pressed="${T.mode==="results"}">Résultats</button></span>`;
+const groupBar=()=>`<span><label class="l">Groupe</label><span class="seg" role="group" aria-label="Groupe">${[["all","Tous"],["Elite","Elite"],["Espoir","Espoir"]].map(([k,l])=>`<button data-tg="${k}" aria-pressed="${T.group===k}">${l}</button>`).join("")}</span></span>`;
+/* Indicateurs du 4 × 400 progressif : dernier 400 (capacité), accélération 1→4 (étagement), paliers (régularité). */
+const STEP_MIN=100;
+const mean4=e=>[1,2,3,4].every(i=>e?.["r"+i])?(e.r1+e.r2+e.r3+e.r4)/4:null;
+const avgOf=a=>{a=a.filter(x=>x!=null);return a.length?Math.round(a.reduce((x,y)=>x+y,0)/a.length):null}; // 1 s : en dessous, deux 400 sont considérés comme nagés à la même allure
+function paliers(e){if(![1,2,3,4].every(i=>e["r"+i]))return null;return[1,2,3].filter(i=>e["r"+i]-e["r"+(i+1)]>=STEP_MIN).length}
+function palierSpan(e){const n=paliers(e);if(n==null)return'<span class="muted">—</span>';return`<span class="dlt" style="color:${n===3?"var(--good)":"var(--lane)"}">${n}/3</span>`}
+function profileSvg(a,b){const vals=[...a,...b].filter(Boolean);if(vals.length<2)return"";const mn=Math.min(...vals),mx=Math.max(...vals),sp=Math.max(mx-mn,1);
+  const W=110,H=38,X=i=>6+i*(W-12)/3,Y=t=>4+(H-8)*(t-mn)/sp;
+  const line=(arr,st,dash)=>{const pts=arr.map((t,i)=>t?[X(i),Y(t)]:null).filter(Boolean);if(pts.length<2)return"";
+    return`<polyline points="${pts.map(p=>p.map(x=>x.toFixed(1)).join(",")).join(" ")}" fill="none" stroke="${st}" stroke-width="2" ${dash?'stroke-dasharray="3 3"':""}/>`+pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.2" fill="${st}"/>`).join("")};
+  return`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Profil des 4 temps">${line(a,"var(--muted)",true)}${line(b,"var(--accent)")}</svg>`}
+function statusOf(ea,eb){if(!ea.r4||!eb.r4)return null;const d=ea.r4-eb.r4,amp=x=>x.r1&&x.r4?x.r1-x.r4:null,da=amp(eb)!=null&&amp(ea)!=null?amp(eb)-amp(ea):null;
+  if(d>=STEP_MIN)return["Progrès","var(--good)","var(--good-soft)"];
+  if(d<=-STEP_MIN)return["À revoir","var(--lane)","var(--sunk)"];
+  if(da!=null&&da>=500)return["Gestion seule","var(--accent)","var(--accent-soft)"];
+  return["Stable","var(--muted)","var(--sunk)"]}
+function compareBlock(ss,rows){
+  if(!ss.find(s=>s.id===T.cmpB))T.cmpB=ss[0].id;
+  if(!ss.find(s=>s.id===T.cmpA)||T.cmpA===T.cmpB)T.cmpA=(ss.find(s=>s.id!==T.cmpB&&s.date<ss.find(x=>x.id===T.cmpB).date)||ss.find(s=>s.id!==T.cmpB)).id;
+  const A=ss.find(s=>s.id===T.cmpA),B=ss.find(s=>s.id===T.cmpB);
+  const opt=sel=>ss.map(s=>`<option value="${s.id}"${s.id===sel?" selected":""}>${fmtDate(s.date)} · ${s.course==="LCM"?"50 m":"25 m"}</option>`).join("");
+  const both=rows.filter(([k])=>A.entries?.[k]&&B.entries?.[k]);
+  const amp=e=>e.r1&&e.r4?e.r1-e.r4:null;
+  const arrow=(x,y,better)=>{if(x==null||y==null)return"";const d=y-x;if(!d)return'<span class="dlt muted">=</span>';const good=better==="lower"?d<0:d>0;
+    return`<span class="dlt" style="color:${good?"var(--good)":"var(--lane)"}">${d>0?"+":"−"}${fmt(Math.abs(d))}</span>`};
+  let h=`<section class="cmp"><div class="ctl" style="margin-bottom:8px"><h3 class="sh" style="margin:0">Comparer deux séances</h3>
+    <span><label class="l" for="cmpA">Avant</label><select id="cmpA" class="tsel">${opt(T.cmpA)}</select></span>
+    <span><label class="l" for="cmpB">Après</label><select id="cmpB" class="tsel">${opt(T.cmpB)}</select></span></div>`;
+  if(!both.length)return h+`<div class="card empty-state">Aucun nageur de ce groupe n'a fait les deux séances.</div></section>`;
+  const list=both.map(([k,a])=>({k,a,ea:A.entries[k],eb:B.entries[k]})).sort((x,y)=>{const o=r=>["Progrès","Gestion seule","Stable","À revoir"].indexOf(r?.[0]??"");return o(statusOf(x.ea,x.eb))-o(statusOf(y.ea,y.eb))||(x.eb.r4??1e9)-(y.eb.r4??1e9)});
+  h+=`<div class="card tblwrap"><table class="rtab"><thead><tr><th>Nageur</th><th>Profil</th><th class="r">Dernier 400</th><th class="r">Accélération 1→4</th><th class="r">Paliers</th><th class="r">Allure moy. /100</th><th>Statut</th></tr></thead><tbody>${
+    list.map(({a,ea,eb})=>{const st=statusOf(ea,eb),pa=paliers(ea),pb=paliers(eb);
+      return`<tr><td class="ev">${esc(a.first)} ${esc(a.last)}</td><td>${profileSvg([1,2,3,4].map(i=>ea["r"+i]),[1,2,3,4].map(i=>eb["r"+i]))}</td>
+      <td class="r"><span class="muted">${ea.r4?fmt(ea.r4):"—"} →</span> <span class="time">${eb.r4?fmt(eb.r4):"—"}</span><div>${arrow(ea.r4,eb.r4,"lower")}</div></td>
+      <td class="r"><span class="muted">${amp(ea)!=null?fmt(Math.abs(amp(ea)))+(amp(ea)<0?" ▲":""):"—"} →</span> ${amp(eb)!=null?fmt(Math.abs(amp(eb)))+(amp(eb)<0?" ▲":""):"—"}<div>${arrow(amp(ea),amp(eb),"higher")}</div></td>
+      <td class="r"><span class="muted">${pa??"—"}/3 →</span> ${pb??"—"}/3</td>
+      <td class="r"><span class="muted">${mean4(ea)?pace100(mean4(ea),400):"—"} →</span> <span class="time">${mean4(eb)?pace100(mean4(eb),400):"—"}</span><div>${mean4(ea)&&mean4(eb)?arrow(Math.round(mean4(ea)/4),Math.round(mean4(eb)/4),"lower"):""}</div></td>
+      <td>${st?`<span class="pill" style="color:${st[1]};background:${st[2]}">${st[0]}</span>`:""}</td></tr>`}).join("")}</tbody></table></div>
+    <div class="legend">Profil : les 4 temps, plus haut = plus rapide ; gris pointillé = avant, bleu = après. Statut : <b>Progrès</b> = dernier 400 au moins 1 s plus rapide ; <b>Gestion seule</b> = dernier 400 stable (± 1 s) mais au moins 5 s d'accélération en plus ; <b>À revoir</b> = dernier 400 plus lent d'au moins 1 s. ▲ = le nageur a ralenti du 1er au 4e. Allure moy. /100 = moyenne des quatre 400 ramenée au 100 m.</div></section>`;
+  return h;
+}
+/* ---------- profil vitesse / endurance ----------
+   Vitesse de sprint : 25 m NL départ plot. Vitesse d'endurance : 600 NL complet (Elite) ou dernier 400 du 4 × 400 (Espoir).
+   Chaque test d'endurance est associé au 25 m du même nageur le plus proche dans le temps, à 6 semaines au plus. */
+const PAIR_DAYS=42;
+const RTYPES={...TTYPES,profil:"Profil vitesse / endurance"};
+const vOf=(dist,cs)=>dist/(cs/100);
+function profilePairs(k,group){
+  const days=(a,b)=>Math.abs(Date.parse(a)-Date.parse(b))/864e5;
+  const spr=T.sessions.filter(s=>s.type==="s25"&&s.entries?.[k]?.FREE_plot);
+  const endType=group==="Elite"?"t600":"t400";
+  const end=T.sessions.filter(s=>s.type===endType&&(endType==="t600"?s.entries?.[k]?.t:s.entries?.[k]?.r4)).sort((a,b)=>a.date.localeCompare(b.date));
+  const out=[],orphans=[];
+  for(const e of end){const near=spr.filter(x=>days(x.date,e.date)<=PAIR_DAYS).sort((a,b)=>days(a.date,e.date)-days(b.date,e.date))[0];
+    const ve=endType==="t600"?vOf(600,e.entries[k].t):vOf(400,e.entries[k].r4),et=endType==="t600"?e.entries[k].t:e.entries[k].r4;
+    if(!near){orphans.push(e.date);continue}
+    const st=near.entries[k].FREE_plot,vs=vOf(25,st);out.push({date:e.date,sdate:near.date,ve,vs,et,st,idx:ve/vs})}
+  return{pairs:out,orphans,endLabel:endType==="t600"?"600 NL":"dernier 400"};
+}
+function renderProfil(v,h){
+  const g=rosterList();const groups=T.group==="all"?["Elite","Espoir"]:[T.group];
+  for(const grp of groups){const list=(g[grp]||[]).map(([k,a])=>({k,a,...profilePairs(k,grp)}));const withP=list.filter(x=>x.pairs.length);
+    const endL=grp==="Elite"?"600 NL complet":"dernier 400 du 4 × 400";
+    h+=`<section style="margin-top:18px"><h3 class="sh">${grp} Regio <span class="muted" style="font-weight:500;font-size:15px">· 25 m NL plot vs ${endL}</span></h3>`;
+    if(!withP.length){h+=`<div class="card empty-state"><b>Pas encore de profil</b>Il faut pour un même nageur un 25 m NL départ plot et un ${grp==="Elite"?"600 NL":"4 × 400"} à moins de 6 semaines d'écart.</div></section>`;continue}
+    h+=`<div class="card" style="padding:10px 6px 4px">${profilChart(withP)}</div>`;
+    h+=`<div class="card tblwrap" style="margin-top:12px"><table class="rtab"><thead><tr><th>Nageur</th><th class="r">25 m plot</th><th class="r">${grp==="Elite"?"600 NL":"Dernier 400"}</th><th class="r">Indice</th><th>Évolution depuis le test précédent</th></tr></thead><tbody>${
+      withP.sort((x,y)=>y.pairs.at(-1).idx-x.pairs.at(-1).idx).map(x=>{const c=x.pairs.at(-1),p=x.pairs.at(-2);
+        const pct=(n,o)=>{const d=100*(n-o)/o;return`<span class="dlt" style="color:${d>0?"var(--good)":d<0?"var(--lane)":"var(--muted)"}">${d>0?"+":d<0?"−":"±"}${Math.abs(d).toFixed(1)} %</span>`};
+        return`<tr><td class="ev">${esc(x.a.first)} ${esc(x.a.last)}</td>
+        <td class="r"><span class="time">${fmt(c.st)}</span><div class="pc">${c.vs.toFixed(2)} m/s · ${fmtDate(c.sdate)}</div></td>
+        <td class="r"><span class="time">${fmt(c.et)}</span><div class="pc">${c.ve.toFixed(2)} m/s · ${fmtDate(c.date)}</div></td>
+        <td class="r"><b>${(100*c.idx).toFixed(1)} %</b>${p?`<div class="pc">avant ${(100*p.idx).toFixed(1)} %</div>`:""}</td>
+        <td>${p?`vitesse ${c.sdate===p.sdate?'<span class="muted">même 25 m</span>':pct(c.vs,p.vs)} · endurance ${pct(c.ve,p.ve)}<div class="pc">${profileVerdict(p,c)}</div>`:'<span class="muted">premier profil</span>'}</td></tr>`}).join("")}</tbody></table></div>`;
+    const orph=list.filter(x=>x.orphans.length&&!x.pairs.length);
+    if(orph.length)h+=`<div class="legend">Sans 25 m plot à moins de 6 semaines : ${orph.map(x=>esc(x.a.first+" "+x.a.last)).join(", ")}.</div>`;
+    h+=`</section>`}
+  h+=`<div class="legend">Indice = vitesse d'endurance ÷ vitesse sur 25 m. Plus il est haut, plus le profil est endurant ; plus il est bas, plus il est orienté vitesse. C'est un repère de profil, pas un classement : compare chaque nageur à lui-même. Au chrono manuel (0.1 s sur ~14 s), un écart d'indice inférieur à 1–2 points n'est pas interprétable. Les deux groupes n'utilisent pas le même test d'endurance : ne compare pas un Elite à un Espoir.</div>`;
+  v.innerHTML=h;bindTests();
+}
+function profileVerdict(p,c){const dv=(c.vs-p.vs)/p.vs,de=(c.ve-p.ve)/p.ve,t=0.01;
+  if(dv>=t&&de>=t)return"Progrès sur les deux plans";if(de>=t&&dv>-t)return"Gain d'endurance";if(dv>=t&&de>-t)return"Gain de vitesse";
+  if(dv<=-t&&de<=-t)return"Recul sur les deux plans";if(de>=t)return"Plus endurant, mais moins rapide";if(dv>=t)return"Plus rapide, mais moins endurant";
+  if(de<=-t||dv<=-t)return"Léger recul";return"Stable (écarts < 1 %)"}
+const PCTIPS={};let pcN=0;
+function profilChart(list){const id="pch"+(++pcN);
+  const all=list.flatMap(x=>x.pairs);const xs=all.map(p=>p.vs),ys=all.map(p=>p.ve);
+  let x0=Math.min(...xs)-0.04,x1=Math.max(...xs)+0.04,y0=Math.min(...ys)-0.04,y1=Math.max(...ys)+0.04;
+  const W=760,H=430,M={l:54,r:20,t:16,b:44};const X=v=>M.l+(W-M.l-M.r)*(v-x0)/(x1-x0),Y=v=>M.t+(H-M.t-M.b)*(1-(v-y0)/(y1-y0));
+  let svg=`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Carte vitesse et endurance"><defs><clipPath id="${id}c"><rect x="${M.l}" y="${M.t}" width="${W-M.l-M.r}" height="${H-M.t-M.b}"/></clipPath>
+    <marker id="${id}a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L8,4L0,8z" fill="var(--fg)" fill-opacity=".6"/></marker></defs>`;
+  const step=v=>v<0.4?0.05:0.1;
+  for(let v=Math.ceil(x0*20)/20;v<=x1;v+=0.05)svg+=`<line x1="${X(v)}" x2="${X(v)}" y1="${M.t}" y2="${H-M.b}" stroke="var(--line)" stroke-opacity=".6"/><text x="${X(v)}" y="${H-M.b+16}" text-anchor="middle">${v.toFixed(2)}</text>`;
+  for(let v=Math.ceil(y0*20)/20;v<=y1;v+=0.05)svg+=`<line x1="${M.l}" x2="${W-M.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" stroke-opacity=".6"/><text x="${M.l-8}" y="${Y(v)+4}" text-anchor="end">${v.toFixed(2)}</text>`;
+  svg+=`<g clip-path="url(#${id}c)">`;
+  for(let r=0.50;r<=0.85;r+=0.05){svg+=`<line x1="${X(x0)}" y1="${Y(r*x0)}" x2="${X(x1)}" y2="${Y(r*x1)}" stroke="var(--muted)" stroke-dasharray="3 5" stroke-opacity=".7"/>`;
+    const lx=Math.min(x1-0.005,(y1-0.012)/r);if(r*lx>y0&&lx>x0)svg+=`<text x="${X(lx)}" y="${Y(r*lx)-5}" text-anchor="end" style="fill:var(--muted)">${Math.round(r*100)} %</text>`}
+  svg+=`</g>`;
+  const tips=[];
+  list.forEach((x,i)=>{const c=colorFor(i),ps=x.pairs;
+    for(let j=1;j<ps.length;j++){const ax=X(ps[j-1].vs),ay=Y(ps[j-1].ve),bx=X(ps[j].vs),by=Y(ps[j].ve),L=Math.hypot(bx-ax,by-ay)||1,k=Math.max(0,(L-9)/L);
+      svg+=`<line x1="${ax}" y1="${ay}" x2="${(ax+(bx-ax)*k).toFixed(1)}" y2="${(ay+(by-ay)*k).toFixed(1)}" stroke="${c}" stroke-width="2" marker-end="url(#${id}a)"/>`}
+    ps.forEach((p,j)=>{const last=j===ps.length-1,ti=tips.length;
+      tips.push(`<b>${esc(x.a.first)} ${esc(x.a.last)}</b><br>25 m : ${fmt(p.st)} (${p.vs.toFixed(2)} m/s) · ${fmtDate(p.sdate)}<br>${esc(x.endLabel)} : ${fmt(p.et)} (${p.ve.toFixed(2)} m/s) · ${fmtDate(p.date)}<br>Indice : <b>${(100*p.idx).toFixed(1)} %</b>`);
+      svg+=`<circle class="pt" data-t="${ti}" cx="${X(p.vs).toFixed(1)}" cy="${Y(p.ve).toFixed(1)}" r="${last?6:4}" fill="${last?c:"var(--surface)"}" stroke="${c}" stroke-width="2"/>`});
+    const l=ps.at(-1);svg+=`<text x="${X(l.vs)+9}" y="${Y(l.ve)+4}" style="fill:${c};font-weight:600">${esc(x.a.first)}</text>`});
+  svg+=`<text x="${W-M.r}" y="${H-6}" text-anchor="end">Vitesse 25 m NL plot (m/s) → plus rapide</text><text x="${M.l}" y="${M.t-4}" style="font-size:11px">Vitesse d'endurance (m/s) ↑</text></svg>`;
+  PCTIPS[id]=tips;
+  return`<div class="profchart" id="${id}" style="position:relative">${svg}</div><div class="legend" style="padding:0 8px 6px">Point plein = dernier test ; la flèche part du test précédent. Vers la droite = plus rapide sur 25 m, vers le haut = plus endurant. Lignes pointillées = indice constant.</div>`;
+}
+function renderResults(v){
+  if(T.rtype==="profil"){const h=`<div class="ctl">${modeBar()}<span><label class="l">Test</label><span class="seg" role="group" aria-label="Type de test">${Object.entries(RTYPES).map(([k,l])=>`<button data-rt="${k}" aria-pressed="${T.rtype===k}">${l}</button>`).join("")}</span></span>${groupBar()}</div>`;return renderProfil(v,h)}
+  const type=TTYPES[T.rtype]?T.rtype:"t400";
+  const ss=T.sessions.filter(s=>s.type===type).sort((a,b)=>b.date.localeCompare(a.date));
+  const rows=testRoster();
+  let h=`<div class="ctl">${modeBar()}<span><label class="l">Test</label><span class="seg" role="group" aria-label="Type de test">${Object.entries(RTYPES).map(([k,l])=>`<button data-rt="${k}" aria-pressed="${type===k}">${l}</button>`).join("")}</span></span>${groupBar()}</div>`;
+  if(!ss.length){v.innerHTML=h+`<div class="card empty-state"><b>Aucune séance ${esc(TTYPES[type])}</b>Passe en mode Saisie pour créer une séance.</div>`;bindTests();return}
+  const prevOf=(s,k)=>T.sessions.filter(x=>x.type===type&&x.date<s.date&&x.entries?.[k]).sort((a,b)=>b.date.localeCompare(a.date))[0];
+  if(type==="t400"&&ss.length>=2)h+=compareBlock(ss,rows);
+  for(const s of ss){const E=s.entries||{};const present=rows.filter(([k])=>E[k]&&Object.values(E[k]).some(x=>x!=null));
+    h+=`<section style="margin-top:18px"><h3 class="sh">${fmtDate(s.date)} <span class="muted" style="font-weight:500;font-size:15px">· ${s.course==="LCM"?"50 m":"25 m"} · ${present.length} nageur(s)${s.note?" · "+esc(s.note):""}</span></h3>`;
+    if(!present.length){h+=`<div class="card empty-state">Aucun résultat pour ce groupe.</div></section>`;continue}
+    if(type==="t400"){
+      const list=present.map(([k,a])=>({k,a,e:E[k]})).sort((x,y)=>(x.e.r4??1e9)-(y.e.r4??1e9));
+      const avg=i=>{const v=list.map(x=>x.e["r"+i]).filter(Boolean);return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):null};
+      const ga=[1,2,3,4].map(avg);
+      h+=`<div class="card tblwrap"><table class="rtab"><thead><tr><th>Nageur</th>${[1,2,3,4].map(i=>`<th class="r">400 n° ${i}</th>`).join("")}<th class="r">Accélération 1→4</th><th class="r">Paliers</th><th class="r">Allure moy. /100</th></tr></thead><tbody>${
+        list.map(({k,a,e})=>`<tr><td class="ev">${esc(a.first)} ${esc(a.last)}</td>${[1,2,3,4].map(i=>{const t=e["r"+i],pr=e["r"+(i-1)];
+            return`<td class="r"><span class="time">${t?fmt(t):"—"}</span><div class="pc">${t?pace100(t,400)+" /100":""}</div>${i>1&&t&&pr?`<div>${stepSpan(pr,t,true)}</div>`:""}${e["l"+i]!=null?`<div class="pc">${e["l"+i]} mmol${e["h"+i]!=null?" · "+e["h"+i]:""}</div>`:e["h"+i]!=null?`<div class="pc">${e["h"+i]} bpm</div>`:""}</td>`}).join("")}
+            <td class="r">${e.r1&&e.r4?stepSpan(e.r1,e.r4):""}</td><td class="r">${palierSpan(e)}</td><td class="r time">${mean4(e)?pace100(mean4(e),400):"—"}</td></tr>`).join("")}
+        <tr class="foot"><td>Moyenne du groupe</td>${ga.map((t,i)=>`<td class="r">${t?fmt(t):"—"}<div class="pc">${t?pace100(t,400)+" /100":""}</div>${i&&t&&ga[i-1]?`<div>${stepSpan(ga[i-1],t,true)}</div>`:""}</td>`).join("")}<td class="r">${ga[0]&&ga[3]?stepSpan(ga[0],ga[3]):""}</td><td></td><td class="r">${(()=>{const m=avgOf(list.map(x=>mean4(x.e)));return m?pace100(m,400):"—"})()}</td></tr></tbody></table></div>`;
+    }else if(type==="t600"){
+      const list=present.map(([k,a])=>({k,a,e:E[k],sp:spread600(E[k])})).sort((x,y)=>(x.sp??1e9)-(y.sp??1e9));
+      h+=`<div class="card tblwrap"><table class="rtab"><thead><tr><th>Nageur</th><th class="r">1er 200</th><th class="r">2e 200</th><th class="r">3e 200</th><th class="r">Écart max–min</th><th class="r">Temps 600</th><th class="r">Allure moy. /100</th><th class="r">vs test préc.</th></tr></thead><tbody>${
+        list.map(x=>{const l=laps600(x.e),p=prevOf(s,x.k),psp=p?spread600(p.entries[x.k]):null;
+          return`<tr><td class="ev">${esc(x.a.first)} ${esc(x.a.last)}</td>${l.map((v,i)=>`<td class="r"><span class="time">${v?fmt(v):"—"}</span>${i&&v&&l[0]?`<div>${dSpan(v-l[0],true)}</div>`:""}</td>`).join("")}
+          <td class="r">${spreadSpan(x.sp)}</td><td class="r">${x.e.t?fmt(x.e.t):"—"}</td><td class="r time">${x.e.t?pace100(x.e.t,600):"—"}</td>
+          <td class="r">${x.sp!=null&&psp!=null?`<span class="dlt" style="color:${x.sp<psp?"var(--good)":x.sp>psp?"var(--lane)":"var(--muted)"}">${x.sp<psp?"plus régulier":x.sp>psp?"moins régulier":"identique"}</span><div class="pc">écart ${fmt(psp)} · ${fmtDate(p.date)}</div>`:'<span class="muted">—</span>'}</td></tr>`}).join("")}${(()=>{const L=[0,1,2].map(i=>avgOf(list.map(x=>laps600(x.e)[i]))),sp=avgOf(list.map(x=>x.sp)),t=avgOf(list.map(x=>x.e.t));
+          return`<tr class="foot"><td>Moyenne du groupe</td>${L.map((v,i)=>`<td class="r">${v?fmt(v):"—"}${i&&v&&L[0]?`<div>${dSpan(v-L[0],true)}</div>`:""}</td>`).join("")}<td class="r">${sp!=null?fmt(sp):"—"}</td><td class="r">${t?fmt(t):"—"}</td><td class="r">${t?pace100(t,600):"—"}</td><td></td></tr>`})()}</tbody></table></div>`;
+    }else{
+      const cols=T25.flatMap(([st,l])=>[[st+"_eau",st],[st+"_plot",st]]);
+      const best=f=>{const v=present.map(([k])=>E[k][f]).filter(Boolean);return v.length?Math.min(...v):null};const B=Object.fromEntries(cols.map(([f])=>[f,best(f)]));
+      h+=`<div class="card tblwrap"><table class="rtab"><thead><tr><th rowspan="2">Nageur</th>${T25.map(([,l])=>`<th colspan="2" class="c">${l}</th>`).join("")}</tr><tr>${T25.map(([st])=>st==="BACK"?`<th class="r sub">Poussée</th><th class="r sub">Départ</th>`:`<th class="r sub">Eau</th><th class="r sub">Plot</th>`).join("")}</tr></thead><tbody>${
+        present.map(([k,a])=>{const e=E[k];return`<tr><td class="ev">${esc(a.first)} ${esc(a.last)}</td>${T25.map(([st])=>{const w=e[st+"_eau"],p=e[st+"_plot"];
+          return`<td class="r${w&&w===B[st+"_eau"]?" pbc":""}">${w?fmt(w):"—"}</td><td class="r${p&&p===B[st+"_plot"]?" pbc":""}">${p?fmt(p):"—"}${w&&p?`<div>${dSpan(p-w,true)}</div>`:""}</td>`}).join("")}</tr>`}).join("")}</tbody></table></div>`;
+    }
+    h+=`</section>`}
+  h+=`<div class="legend">${type==="t400"?"Sous chaque 400 : ▼ secondes gagnées sur le 400 précédent (vert), ▲ secondes perdues (orange). Accélération 1→4 : secondes gagnées entre le premier et le dernier 400 ; plus c\u2019est grand, mieux le test est réussi. Paliers : nombre de 400 nagés au moins 1 s plus vite que le précédent (3/3 = progression complète). Classement par temps du dernier 400.":type==="t600"?"Sous les 2e et 3e 200 : écart avec le 1er 200. Écart max–min : différence entre le 200 le plus rapide et le plus lent ; vert ≤ 2 s, orange > 5 s. Classement du plus régulier au moins régulier.":"En vert : meilleur temps du groupe dans la colonne. Sous le temps plongé : écart avec le départ dans l'eau (gain du départ)."}</div>`;
+  v.innerHTML=h;bindTests();
+}
+function renderTests(){
+  const v=$("viewTests");if(!S.db){v.innerHTML=`<div class="card empty-state"><b>Base indisponible</b>Les tests sont enregistrés dans la base du Carnet.</div>`;return}
+  if(T.mode==="results")return renderResults(v);
+  const ss=[...T.sessions].sort((a,b)=>b.date.localeCompare(a.date)||a.type.localeCompare(b.type));
+  if(!ss.find(s=>s.id===T.cur))T.cur=ss[0]?.id||null;
+  const cur=ss.find(s=>s.id===T.cur);
+  let h=`<div class="ctl">${modeBar()}<span><label class="l">Séance</label><select id="tSel" aria-label="Séance de test">${ss.map(s=>`<option value="${s.id}"${s.id===T.cur?" selected":""}>${fmtDate(s.date)} · ${TTYPES[s.type]} · ${s.course==="LCM"?"50 m":"25 m"}</option>`).join("")||"<option>Aucune séance</option>"}</select></span>
+    <button class="btn" id="tNewBtn">Nouvelle séance</button>
+    ${cur?`<button class="btn ghost" id="tDel">${T.confirmDel?"Confirmer la suppression":"Supprimer la séance"}</button>${T.confirmDel?`<button class="btn ghost" id="tDelNo">Annuler</button>`:""}`:""}</div>
+    <div class="card" id="tNew" hidden style="padding:14px;margin-bottom:14px">
+      <div class="ctl" style="margin:0"><span><label class="l" for="tDate">Date</label><input type="date" id="tDate" value="${today().toISOString().slice(0,10)}" class="tsel"></span>
+      <span><label class="l" for="tType">Test</label><select id="tType">${Object.entries(TTYPES).map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></span>
+      <span><label class="l" for="tCourse">Bassin</label><select id="tCourse"><option value="SCM">25 m</option><option value="LCM">50 m</option></select></span>
+      <span><label class="l" for="tNote">Note</label><input id="tNote" class="tsel" placeholder="ex. après 2 jours de repos" style="width:220px"></span>
+      <button class="btn" id="tCreate">Créer</button><button class="btn ghost" id="tCancel">Annuler</button></div><div id="tNewMsg" class="msg"></div></div>`;
+  if(!cur){v.innerHTML=h+`<div class="card empty-state"><b>Aucune séance de test</b>Crée une séance (25 m sprint, 4 × 400 NL ou 600 NL régulier), puis saisis les temps nageur par nageur.</div>`+histBlock();bindTests();return}
+  h+=`<div class="ctl">${groupBar()}
+    ${cur.type==="t400"?`<label class="mchk"><input type="checkbox" id="tLac"${T.showLac?" checked":""}> Lactate et FC</label>`:""}
+    <span id="tStatus" class="msg" style="margin:0">${esc(T.status)}</span></div>
+    ${cur.note?`<p class="muted" style="margin:-4px 0 10px">${esc(cur.note)}</p>`:""}`;
+  const E=cur.entries||{},rows=testRoster();
+  const inp=(k,f,ph)=>{const val=E[k]?.[f];const kind=fieldKind(f);return`<input class="tin${kind!=="time"?" small":""}" inputmode="decimal" autocomplete="off" id="ti-${esc(k)}-${f}" data-k="${esc(k)}" data-f="${f}" value="${esc(showField(f,val))}" placeholder="${ph||""}" aria-label="${f}">`};
+  let t="";
+  if(cur.type==="s25"){
+    t=`<table class="tgrid"><thead><tr><th rowspan="2">Nageur</th>${T25.map(([s,l])=>`<th colspan="2" class="c">${l}</th>`).join("")}</tr>
+      <tr>${T25.map(([s])=>s==="BACK"?`<th class="c sub">Poussée</th><th class="c sub">Départ</th>`:`<th class="c sub">Eau</th><th class="c sub">Plot</th>`).join("")}</tr></thead><tbody>`+
+      rows.map(([k,a])=>`<tr><td class="nm">${esc(a.first)} ${esc(a.last)}</td>${T25.map(([s])=>`<td>${inp(k,s+"_eau","ss.cc")}</td><td>${inp(k,s+"_plot","ss.cc")}</td>`).join("")}</tr>`).join("")+`</tbody></table>`;
+  }else if(cur.type==="t400"){
+    const L=T.showLac;
+    t=`<table class="tgrid"><thead><tr><th rowspan="${L?2:1}">Nageur</th>${[1,2,3,4].map(i=>`<th colspan="${L?3:1}" class="c">400 n° ${i}</th>`).join("")}<th rowspan="${L?2:1}" class="c">Accélération 1→4</th></tr>
+      ${L?`<tr>${[1,2,3,4].map(()=>`<th class="c sub">Temps</th><th class="c sub">Lac</th><th class="c sub">FC</th>`).join("")}</tr>`:""}</thead><tbody>`+
+      rows.map(([k,a])=>{const e=E[k]||{};const d=e.r1&&e.r4?e.r4-e.r1:null;
+        return`<tr><td class="nm">${esc(a.first)} ${esc(a.last)}</td>${[1,2,3,4].map(i=>`<td>${inp(k,"r"+i,"m:ss.cc")}<div class="pc" id="pc-${esc(k)}-${i}">${repCalc(e,i)}</div></td>${L?`<td>${inp(k,"l"+i,"mmol")}</td><td>${inp(k,"h"+i,"bpm")}</td>`:""}`).join("")}
+        <td class="c" id="d14-${esc(k)}" style="padding-top:10px">${e.r1&&e.r4?stepSpan(e.r1,e.r4):""}</td></tr>`}).join("")+`</tbody></table>`;
+  }else{
+    t=`<table class="tgrid"><thead><tr><th>Nageur</th><th class="c">Passage 200</th><th class="c">Passage 400</th><th class="c">Temps 600</th><th class="c">Les trois 200</th><th class="c">Écart max–min</th></tr></thead><tbody>`+
+      rows.map(([k,a])=>{const e=E[k]||{};
+        return`<tr><td class="nm">${esc(a.first)} ${esc(a.last)}</td><td>${inp(k,"s1","m:ss.cc")}</td><td>${inp(k,"s2","m:ss.cc")}</td><td>${inp(k,"t","m:ss.cc")}</td>
+        <td class="c" id="l6-${esc(k)}" style="padding-top:10px;white-space:nowrap">${e.s1||e.s2||e.t?lapsHtml(e):""}</td><td class="c" id="sp-${esc(k)}" style="padding-top:10px">${spreadSpan(spread600(e))}</td></tr>`}).join("")+`</tbody></table>`;
+  }
+  h+=`<div class="card tblwrap">${t}</div><div class="legend">Saisie : 13.45 · 1:05.30 · 4:32.1 ou 4.32.10. Chaque valeur est enregistrée dès que tu quittes la case (Tab ou Entrée). Case vide = pas de mesure.</div>`;
+  v.innerHTML=h+histBlock();bindTests();
+}
+function histBlock(){
+  const g=rosterList(),all=[...g.Elite,...g.Espoir,...g.Autres];if(!all.length)return"";
+  if(!T.hist||!S.athletes[T.hist])T.hist=S.sel||all[0][0];
+  const k=T.hist,mine=t=>T.sessions.filter(s=>s.type===t&&s.entries?.[k]&&Object.values(s.entries[k]).some(x=>x!=null)).sort((a,b)=>a.date.localeCompare(b.date));
+  let h=`<section style="margin-top:24px"><div class="ctl"><h3 class="sh" style="margin:0">Historique des tests</h3><select id="tHist" aria-label="Nageur">${all.map(([kk,a])=>`<option value="${esc(kk)}"${kk===k?" selected":""}>${esc(a.first)} ${esc(a.last)}</option>`).join("")}</select></div>`;
+  const s25=mine("s25"),s4=mine("t400"),s1=mine("t600");
+  if(!s25.length&&!s4.length&&!s1.length)return h+`<div class="card empty-state"><b>Aucun test enregistré</b>Les résultats de ce nageur apparaîtront ici après la première saisie.</div></section>`;
+  const best=(list,f)=>{const v=list.map(s=>s.entries[k][f]).filter(x=>x);return v.length?Math.min(...v):null};
+  const cell=(v,b)=>v?`<td class="r${v===b?" pbc":""}">${fmt(v)}</td>`:`<td class="r muted">—</td>`;
+  if(s25.length){const cols=T25.flatMap(([s,l])=>[[s+"_eau",l+(s==="BACK"?" poussée":" eau")],[s+"_plot",l+(s==="BACK"?" départ":" plot")]]);
+    h+=`<h4 class="sh" style="font-size:16px;margin:12px 0 6px">25 m sprint</h4><div class="card tblwrap"><table><thead><tr><th>Date</th>${cols.map(([,l])=>`<th class="r">${l}</th>`).join("")}</tr></thead><tbody>${
+      s25.slice().reverse().map(s=>`<tr><td>${fmtDate(s.date)} <span class="muted">${s.course==="LCM"?"50 m":"25 m"}</span></td>${cols.map(([f])=>cell(s.entries[k][f],best(s25.filter(x=>x.course===s.course),f))).join("")}</tr>`).join("")}</tbody></table></div>`}
+  if(s4.length){h+=`<h4 class="sh" style="font-size:16px;margin:16px 0 6px">4 × 400 NL</h4><div class="card tblwrap"><table><thead><tr><th>Date</th>${[1,2,3,4].map(i=>`<th class="r">400 n° ${i}</th>`).join("")}</tr></thead><tbody>${
+      s4.slice().reverse().map(s=>{const e=s.entries[k];return`<tr><td>${fmtDate(s.date)} <span class="muted">${s.course==="LCM"?"50 m":"25 m"}</span></td>${[1,2,3,4].map(i=>`<td class="r">${e["r"+i]?fmt(e["r"+i]):"—"}${e["l"+i]!=null?` <span class="muted">· ${e["l"+i]} mmol</span>`:""}${e["h"+i]!=null?` <span class="muted">· ${e["h"+i]}</span>`:""}</td>`).join("")}</tr>`}).join("")}</tbody></table></div>`}
+  if(s1.length){h+=`<h4 class="sh" style="font-size:16px;margin:16px 0 6px">600 NL régulier</h4><div class="card tblwrap"><table><thead><tr><th>Date</th><th class="r">Les trois 200</th><th class="r">Écart max–min</th><th class="r">Temps 600</th></tr></thead><tbody>${
+      s1.slice().reverse().map(s=>{const e=s.entries[k];return`<tr><td>${fmtDate(s.date)} <span class="muted">${s.course==="LCM"?"50 m":"25 m"}</span></td><td class="r">${lapsHtml(e)}</td><td class="r">${spreadSpan(spread600(e))}</td><td class="r">${e.t?fmt(e.t):"—"}</td></tr>`}).join("")}</tbody></table></div>`}
+  return h+`<div class="legend">En vert : meilleur temps du nageur sur ce test (25 m : comparé dans le même bassin).</div></section>`;
+}
+function bindTests(){
+  const v=$("viewTests");
+  $("tSel")?.addEventListener("change",e=>{T.cur=e.target.value;T.confirmDel=false;saveT();renderTests()});
+  v.querySelectorAll("[data-tm]").forEach(b=>b.onclick=()=>{T.mode=b.dataset.tm;saveT();renderTests()});
+  v.querySelectorAll("[data-rt]").forEach(b=>b.onclick=()=>{T.rtype=b.dataset.rt;saveT();renderTests()});
+  $("cmpA")?.addEventListener("change",e=>{T.cmpA=e.target.value;saveT();renderTests()});
+  $("cmpB")?.addEventListener("change",e=>{T.cmpB=e.target.value;saveT();renderTests()});
+  v.querySelectorAll("[data-tg]").forEach(b=>b.onclick=()=>{T.group=b.dataset.tg;saveT();renderTests()});
+  if(!$("tNewBtn"))return;
+  $("tNewBtn").onclick=()=>{$("tNew").hidden=false;$("tDate").focus()};
+  $("tCancel").onclick=()=>{$("tNew").hidden=true};
+  $("tCreate").onclick=async()=>{const date=$("tDate").value,type=$("tType").value,course=$("tCourse").value,note=$("tNote").value.trim();
+    if(!date){$("tNewMsg").textContent="Choisis une date.";return}const id=date+"__"+type;
+    if(T.sessions.find(s=>s.id===id)){T.cur=id;saveT();renderTests();return}
+    try{$("tCreate").disabled=true;await S.db.collection("tests").doc(id).set({date,type,course,note,entries:{}});T.cur=id;saveT();renderTests()}
+    catch(err){$("tNewMsg").className="msg err";$("tNewMsg").textContent="Création refusée ("+(err.code||"erreur")+").";$("tCreate").disabled=false}};
+  if($("tDel"))$("tDel").onclick=async()=>{if(!T.confirmDel){T.confirmDel=true;renderTests();return}
+    try{await S.db.collection("tests").doc(T.cur).delete();T.confirmDel=false;T.cur=null;saveT()}catch(err){setStatus("Suppression refusée.",true)}};
+  if($("tDelNo"))$("tDelNo").onclick=()=>{T.confirmDel=false;renderTests()};
+  if($("tLac"))$("tLac").onchange=e=>{T.showLac=e.target.checked;saveT();renderTests()};
+  $("tHist")?.addEventListener("change",e=>{T.hist=e.target.value;saveT();renderTests()});
+  v.querySelectorAll(".tin").forEach(i=>{
+    i.addEventListener("change",()=>{const k=i.dataset.k,f=i.dataset.f,val=parseField(f,i.value);
+      if(Number.isNaN(val)){i.classList.add("bad");setStatus(fieldKind(f)==="time"?(/^r\d$/.test(f)?"Temps de 400 attendu entre 3:00 et 10:00 (ex. 4:32.10).":f==="s1"?"Passage au 200 attendu entre 1:40 et 5:00.":f==="s2"?"Passage au 400 attendu entre 3:20 et 10:00 (temps cumulé).":f==="t"?"Temps final du 600 attendu entre 5:00 et 15:00 (ex. 7:45.3).":"Temps de 25 m attendu entre 8 et 60 s (ex. 13.45)."):fieldKind(f)==="lac"?"Lactate attendu entre 0 et 30 mmol/L.":"FC attendue entre 40 et 230.",true);return}
+      i.classList.remove("bad");i.value=showField(f,val);
+      const cur=T.sessions.find(s=>s.id===T.cur);if(cur)cur.entries={...(cur.entries||{}),[k]:{...(cur.entries?.[k]||{}),[f]:val}};
+      writeEntry(T.cur,k,f,val);
+      if(cur&&/^(s1|s2|t)$/.test(f)){const e=cur.entries[k]||{};const l=document.getElementById(`l6-${k}`),sp=document.getElementById(`sp-${k}`);if(l)l.innerHTML=lapsHtml(e);if(sp)sp.innerHTML=spreadSpan(spread600(e))}
+      if(cur&&/^r\d$/.test(f)){const e=cur.entries[k]||{};for(const j of[1,2,3,4]){const el=document.getElementById(`pc-${k}-${j}`);if(el)el.innerHTML=repCalc(e,j)}
+        const d=document.getElementById(`d14-${k}`);if(d)d.innerHTML=e.r1&&e.r4?stepSpan(e.r1,e.r4):""}});
+    i.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();const all=[...v.querySelectorAll(".tin")],n=all[all.indexOf(i)+1];if(n)n.focus();else i.blur()}});
+  });
+}
+
+/* ---------- contrôles ---------- */
+function syncSeg(){
+  document.querySelectorAll("[data-course]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.course===S.course));
+  document.querySelectorAll("[data-period]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.period===S.period));
+  document.querySelectorAll("[data-sort]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.sort===S.sort));
+}
+$("filters").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.course)S.course=b.dataset.course;if(b.dataset.period)S.period=b.dataset.period;if(b.dataset.sort)S.sort=b.dataset.sort;S.open=null;saveUi();render()});
+function setView(v){S.view=v;
+  for(const[id,n]of[["tabAth","ath"],["tabTests","tests"],["tabComp","comp"]])$(id).setAttribute("aria-pressed",v===n);
+  $("viewAth").hidden=v!=="ath";$("viewTests").hidden=v!=="tests";$("viewComp").hidden=v!=="comp";
+  $("filters").hidden=v==="tests"||v==="comp";$("sortWrap").hidden=v!=="ath";render()}
+$("tabAth").onclick=()=>setView("ath");$("tabTests").onclick=()=>setView("tests");$("tabComp").onclick=()=>setView("comp");
+
+/* Couleurs de série (graphiques des tests). */
+function colorFor(i){return`var(--s${i%8+1})`}
+$("viewTests").addEventListener("pointermove",e=>{const c=e.target.closest(".profchart .pt"),t=$("ptip");
+  if(!c){t.hidden=true;return}const box=c.closest(".profchart");t.innerHTML=PCTIPS[box.id]?.[+c.dataset.t]||"";t.hidden=false;
+  t.style.left=Math.min(e.clientX+12,innerWidth-t.offsetWidth-8)+"px";t.style.top=(e.clientY+12)+"px"});
+function render(){
+  syncSeg();
+  if(!S.sel||!S.athletes[S.sel]){const g=rosterList();const first=[...g.Elite,...g.Espoir,...g.Autres].find(([k])=>S.swims.some(s=>s.athlete===k));S.sel=first?first[0]:null}
+  renderSide();if(S.view==="ath")renderAth();else if(S.view==="comp"){if(!typingNote())renderComp()}else if(!document.activeElement?.classList?.contains("tin"))renderTests();
+}
+
+/* ---------- import Lenex ---------- */
+$("importBtn").onclick=()=>{if(!S.db){showImport(`<p class="msg err">La base n'est pas disponible dans cette vue : l'import est impossible ici.</p>`);return}$("fileIn").click()};
+function showImport(html){const p=$("importPanel");p.innerHTML=html;p.hidden=!html}
+async function readLenex(file){
+  const buf=await file.arrayBuffer();const head=new Uint8Array(buf.slice(0,2));
+  if(head[0]===0x50&&head[1]===0x4b){const zip=await JSZip.loadAsync(buf);const f=Object.values(zip.files).find(f=>/\.(lef|xml)$/i.test(f.name));if(!f)throw new Error("Aucun fichier .lef dans l'archive.");return await f.async("string")}
+  return new TextDecoder().decode(buf);
+}
+const toCs=t=>{if(!t||t==="NT")return null;const[h,m,s]=t.split(":");return Math.round((+h*3600+ +m*60+ +s)*100)};
+function parseLenex(xml){
+  const doc=new DOMParser().parseFromString(xml,"application/xml");if(doc.querySelector("parsererror"))throw new Error("Fichier Lenex illisible.");
+  const meet=doc.querySelector("MEET");if(!meet)throw new Error("Aucune compétition dans ce fichier.");
+  const mc=meet.getAttribute("course");const ev={};const dates=[];
+  meet.querySelectorAll("SESSION").forEach(s=>{const date=s.getAttribute("date");dates.push(date);
+    s.querySelectorAll("EVENT").forEach(e=>{const st=e.querySelector("SWIMSTYLE");if(!st)return;
+      ev[e.getAttribute("eventid")]={d:+st.getAttribute("distance"),s:st.getAttribute("stroke"),relay:+(st.getAttribute("relaycount")||1)>1,r:e.getAttribute("round")||"",date,c:s.getAttribute("course")||mc}})});
+  dates.sort();const city=meet.getAttribute("city")||"";
+  const info={key:dates[0]+"-"+slug(city),name:meet.getAttribute("name")||"",city,nation:meet.getAttribute("nation")||"",course:mc,date:dates[0]};
+  const athletes=[];
+  meet.querySelectorAll("CLUB").forEach(club=>club.querySelectorAll(":scope > ATHLETES > ATHLETE").forEach(a=>{
+    const g=n=>a.getAttribute(n)||"";const key=slug(g("lastname"))+"-"+slug(g("firstname"));const res=[];
+    a.querySelectorAll("RESULT").forEach(r=>{const e=ev[r.getAttribute("eventid")];if(!e||e.relay||!e.d)return;
+      const sp=[...r.querySelectorAll("SPLIT")].map(x=>[+x.getAttribute("distance"),toCs(x.getAttribute("swimtime"))]).filter(x=>x[1]!=null).sort((x,y)=>x[0]-y[0]);
+      const t=toCs(r.getAttribute("swimtime")),st=r.getAttribute("status")||"";
+      res.push({d:e.d,s:e.s,r:e.r,c:e.c,date:e.date,t,p:+(r.getAttribute("points")||0)||(st?0:aquaPts(a.getAttribute("gender"),e.c,e.d,e.s,t)),st,sp:sp.filter(x=>x[0]<e.d)})});
+    athletes.push({key,first:g("firstname"),last:g("lastname"),birth:g("birthdate"),gender:g("gender"),swrid:g("swrid"),club:club.getAttribute("name")||"",clubCode:club.getAttribute("code")||"",res})}));
+  return{info,athletes};
+}
+let pending=null;
+$("fileIn").addEventListener("change",async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;
+  try{const xml=await readLenex(f);
+    {const d=new DOMParser().parseFromString(xml,"application/xml");if(d.querySelector("parsererror"))throw new Error("Fichier Lenex illisible.");
+     if(!d.querySelector("RESULT")&&d.querySelector("ENTRY"))return showEntriesImport(parseEntries(d))}
+    const p=parseLenex(xml);pending=p;
+    const mine=p.athletes.filter(a=>S.athletes[a.key]&&a.res.length);
+    const others=p.athletes.filter(a=>!S.athletes[a.key]&&a.res.length&&a.clubCode==="LA");
+    showImport(`<h3>${esc(p.info.name)} · ${esc(p.info.city)} · ${fmtDate(p.info.date)} · ${p.info.course==="LCM"?"50 m":"25 m"}</h3>
+      <p>${mine.length} de tes nageurs trouvés : ${mine.map(a=>esc(a.first+" "+a.last)).join(", ")||"aucun"}.</p>
+      ${others.length?`<p class="muted" style="margin:8px 0 0">Autres nageurs de LA dans ce fichier : coche ceux à ajouter à ta liste.</p><div class="unk">${others.map(a=>`<label><input type="checkbox" value="${esc(a.key)}" id="add-${esc(a.key)}"> ${esc(a.first)} ${esc(a.last)} <span class="muted">(${esc(a.birth.slice(0,4))})</span></label>`).join("")}</div>`:""}
+      <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="doImport">Importer</button><button class="btn ghost" id="cancelImport">Annuler</button></div><div id="impMsg" class="msg"></div>`);
+    $("cancelImport").onclick=()=>{pending=null;showImport("")};$("doImport").onclick=doImport;
+  }catch(err){showImport(`<p class="msg err">${esc(err.message||err)}</p><button class="btn ghost" onclick="showImport('')">Fermer</button>`)}});
+async function doImport(){
+  const p=pending;if(!p)return;const btn=$("doImport");btn.disabled=true;
+  const add=new Set([...document.querySelectorAll("#importPanel .unk input:checked")].map(i=>i.value));
+  let n=0;
+  try{
+    for(const a of p.athletes){if(!a.res.length)continue;const known=S.athletes[a.key];if(!known&&!add.has(a.key))continue;
+      const body={...(known||{group:"Autres",mine:true}),first:a.first,last:a.last,birth:a.birth,gender:a.gender};if(a.swrid)body.swrid=a.swrid;
+      await S.db.collection("athletes").doc(a.key).set(body);
+      await S.db.collection("swims").doc(a.key+"__"+p.info.key).set({athlete:a.key,meet:p.info,results:a.res});n++;
+      $("impMsg").textContent=`${n} nageur(s) importé(s)…`}
+    $("impMsg").textContent=`Import terminé : ${n} nageur(s). Réimporter le même fichier remplace les résultats sans doublon.`;pending=null;
+  }catch(err){$("impMsg").className="msg err";$("impMsg").textContent=err.code==="invalid_argument"?"Écriture refusée : seul le propriétaire peut importer.":"Import interrompu ("+(err.code||err.message)+"). Réessaie : les nageurs déjà importés ne seront pas dupliqués.";btn.disabled=false}
+}
+
+
+/* ---------- compétition : feuille de route ----------
+   Collection "meets" : un document par compétition, même clé que les imports de résultats (1re date + ville),
+   créé depuis le Lenex d'engagements : { info:{key,name,city,course,start,end}, sessions:[{n,date,warm,time,c}],
+   events:[{id,n,d,s,rc,relay,r,g,date,sess,time,c}], entries:[individuel {a,first,last,ev,et,ec,heat,lane,st} | relais {relay,team,ev,et,legs:[{pos,a,first,last}]}] }
+   Collection "notes" : un document par nageur et par course, id = nageur__date__distance-nage (relais : nageur__date__R<n° épreuve>).
+   { a, date, d, s, r, relay, ev, meet:{key,name,city,course}, tags:{dep,coul,vir,all,fin : 1 | -1}, text }
+   Les notes ne dépendent pas de la feuille de route : elles restent après l'archivage et se rattachent au résultat
+   (même nageur, même jour, même épreuve) dès que le Lenex des résultats est importé. */
+const TAGS=[["dep","Départ"],["coul","Coulées"],["vir","Virages"],["all","Allure"],["fin","Finish"]];
+const GENDER={M:"Messieurs",F:"Dames",X:"Mixte"};
+const LEG_MEDLEY=["BACK","BREAST","FLY","FREE"];
+const C={meets:[],notes:{},x:{},pick:null,mode:"day",day:null,ath:null,confirmDel:false};
+try{const v=JSON.parse(localStorage.getItem("ct-comp")||"{}");Object.assign(C,{mode:v.mode||"day",ath:v.ath||null})}catch(e){}
+function saveC(){try{localStorage.setItem("ct-comp",JSON.stringify({mode:C.mode,ath:C.ath}))}catch(e){}}
+function isoToday(){const t=new Date();return`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`}
+function addDays(d,n){const t=new Date(d+"T12:00:00Z");t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10)}
+const dayLong=d=>new Date(d+"T12:00:00").toLocaleDateString("fr-CH",{weekday:"long",day:"numeric",month:"long"});
+const dayShort=d=>new Date(d+"T12:00:00").toLocaleDateString("fr-CH",{weekday:"short",day:"2-digit",month:"2-digit"});
+/* Une compétition reste dans l'onglet jusqu'à deux jours après sa dernière réunion. */
+const isActive=m=>isoToday()<=addDays(m.info.end,2);
+const evLabel=e=>e.relay?`${e.rc}×${e.d} ${STROKES[e.s]||e.s}`:evName(e.d,e.s);
+const legStroke=(e,pos)=>e.s==="MEDLEY"?LEG_MEDLEY[pos-1]||"FREE":e.s;
+const nidInd=(a,e)=>`${a}__${e.date}__${e.d}-${e.s}${e.r==="FIN"?"-FIN":""}`;
+/* Collection "meetx" : saisies faites pendant la compétition, à part de la feuille de route pour survivre à un réimport.
+   { dns:{<id course>:1}, fin:{<id course qualificative>:{date}}, t:{<id course>:centièmes} } — id = celui des notes. */
+const X=k=>C.x[k]||{dns:{},fin:{},t:{}};
+const xQ={};
+function writeX(k,mut){const cur=X(k),nx={dns:{...cur.dns},fin:{...cur.fin},t:{...cur.t}};mut(nx);C.x[k]=nx;
+  xQ[k]=(xQ[k]||Promise.resolve()).then(()=>S.db.collection("meetx").doc(k).set(nx)).then(()=>setCStatus("Enregistré"),err=>setCStatus("Non enregistré ("+(err.code||"erreur")+"). Réessaie.",true))}
+const nidRel=(a,e)=>`${a}__${e.date}__R${e.n||e.id}`;
+
+function parseEntries(doc){
+  const meet=doc.querySelector("MEET");if(!meet)throw new Error("Aucune compétition dans ce fichier.");
+  const mc=meet.getAttribute("course")||"SCM";const sessions=[],events={},heats={};
+  meet.querySelectorAll("SESSION").forEach(s=>{const date=s.getAttribute("date"),n=+s.getAttribute("number")||sessions.length+1,c=s.getAttribute("course")||mc;
+    sessions.push({n,date,warm:(s.getAttribute("warmupfrom")||"").slice(0,5),time:(s.getAttribute("daytime")||"").slice(0,5),c});
+    s.querySelectorAll("EVENT").forEach(e=>{const st=e.querySelector("SWIMSTYLE");if(!st)return;const rc=+(st.getAttribute("relaycount")||1);
+      e.querySelectorAll("HEAT").forEach(h=>{heats[h.getAttribute("heatid")]=+h.getAttribute("number")||null});
+      events[e.getAttribute("eventid")]={id:e.getAttribute("eventid"),n:+e.getAttribute("number")||0,d:+st.getAttribute("distance"),s:st.getAttribute("stroke"),rc,relay:rc>1,
+        r:e.getAttribute("round")||"",g:e.getAttribute("gender")||"",date,sess:n,time:(e.getAttribute("daytime")||"").slice(0,5),c}})});
+  if(!sessions.length)throw new Error("Aucune réunion dans ce fichier.");
+  const dates=sessions.map(s=>s.date).sort(),city=meet.getAttribute("city")||"";
+  const info={key:dates[0]+"-"+slug(city),name:meet.getAttribute("name")||"",city,course:mc,start:dates[0],end:dates[dates.length-1]};
+  const entries=[],used=new Set(),et=en=>toCs(en.getAttribute("entrytime"))||null;
+  const pos=en=>({heat:heats[en.getAttribute("heatid")]||null,lane:+en.getAttribute("lane")||null,st:en.getAttribute("status")||""});
+  meet.querySelectorAll("CLUB").forEach(club=>{const byId={};
+    club.querySelectorAll(":scope > ATHLETES > ATHLETE").forEach(a=>{const g=n=>a.getAttribute(n)||"";
+      const ath={a:slug(g("lastname"))+"-"+slug(g("firstname")),first:g("firstname"),last:g("lastname")};byId[g("athleteid")]=ath;
+      a.querySelectorAll("ENTRY").forEach(en=>{const ev=events[en.getAttribute("eventid")];if(!ev||ev.relay)return;
+        entries.push({...ath,ev:ev.id,et:et(en),ec:en.getAttribute("entrycourse")||"",...pos(en)});used.add(ev.id)})});
+    club.querySelectorAll(":scope > RELAYS > RELAY").forEach(rl=>rl.querySelectorAll(":scope > ENTRIES > ENTRY").forEach(en=>{
+      const ev=events[en.getAttribute("eventid")];if(!ev||!ev.relay)return;
+      let ps=[...en.querySelectorAll("RELAYPOSITION")];if(!ps.length)ps=[...rl.querySelectorAll(":scope > RELAYPOSITIONS > RELAYPOSITION")];
+      const legs=ps.map(p=>({pos:+p.getAttribute("number"),...(byId[p.getAttribute("athleteid")]||{a:"",first:"Nageur",last:"inconnu"})})).filter(l=>l.pos>0).sort((x,y)=>x.pos-y.pos);
+      const team=rl.getAttribute("name")||`${club.getAttribute("shortname")||club.getAttribute("name")||"Relais"} ${rl.getAttribute("number")||""}`.trim();
+      entries.push({relay:true,team,ev:ev.id,et:et(en),legs,...pos(en)});used.add(ev.id)}));
+  });
+  return{info,sessions:sessions.sort((x,y)=>x.date.localeCompare(y.date)||x.n-y.n),events:Object.values(events).filter(e=>used.has(e.id)),entries};
+}
+let pendingMeet=null;
+function showEntriesImport(m){
+  const ind=m.entries.filter(x=>!x.relay),rel=m.entries.filter(x=>x.relay);
+  if(!m.entries.length){showImport(`<p class="msg err">Aucun engagement dans ce fichier. Exporte le Lenex depuis ton outil d'inscription une fois les nageurs engagés.</p><button class="btn ghost" id="cancelImport">Fermer</button>`);$("cancelImport").onclick=()=>showImport("");return}
+  pendingMeet=m;const names=new Set(ind.map(x=>x.a));rel.forEach(r=>r.legs.forEach(l=>l.a&&names.add(l.a)));
+  const exists=C.meets.some(x=>x.id===m.info.key);
+  showImport(`<h3>Engagements · ${esc(m.info.name)} · ${esc(m.info.city)} · ${meetDates(m.info)} · ${m.info.course==="LCM"?"50 m":"25 m"}</h3>
+    <p>${names.size} nageurs · ${ind.length} départs individuels · ${rel.length} relais.</p>
+    <p class="muted" style="margin:4px 0 0">${exists?"Cette compétition a déjà une feuille de route : elle sera remplacée. Les notes déjà prises sont conservées.":"La feuille de route s'affiche dans l'onglet Compétition jusqu'à deux jours après la dernière réunion."}</p>
+    <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="doMeet">${exists?"Remplacer la feuille de route":"Créer la feuille de route"}</button><button class="btn ghost" id="cancelImport">Annuler</button></div><div id="impMsg" class="msg"></div>`);
+  $("cancelImport").onclick=()=>{pendingMeet=null;showImport("")};
+  $("doMeet").onclick=async()=>{const p=pendingMeet;if(!p)return;$("doMeet").disabled=true;
+    try{await S.db.collection("meets").doc(p.info.key).set({...p,imported:new Date().toISOString()});pendingMeet=null;showImport("");C.pick=p.info.key;C.day=null;setView("comp")}
+    catch(err){$("impMsg").className="msg err";$("impMsg").textContent=err.code==="invalid_argument"?"Écriture refusée : seul le propriétaire peut importer.":"Enregistrement refusé ("+(err.code||err.message)+"). Réessaie.";$("doMeet").disabled=false}};
+}
+const meetDates=i=>i.end&&i.end!==i.start?`${fmtDate(i.start)} – ${fmtDate(i.end)}`:fmtDate(i.start);
+
+/* Meilleur temps avant la compétition, dans un bassin donné. */
+/* Dernière course valide avant la compétition, même épreuve, même bassin. */
+function lastOf(a,d,s,c,before){let b=null;for(const r of racesOf(a))if(valid(r)&&r.d===d&&r.s===s&&r.c===c&&r.date<before&&(!b||r.date>b.date))b=r;return b}
+function mppOf(a,d,s,c,before){let b=null;for(const r of racesOf(a))if(valid(r)&&r.d===d&&r.s===s&&r.c===c&&r.date<before&&(!b||r.t<b.t))b=r;return b}
+function resultOf(a,e){const f=e.r==="FIN";return racesOf(a).find(r=>r.date===e.date&&r.d===e.d&&r.s===e.s&&(r.r==="FIN")===f)}
+function splitsTable(r){
+  const pts=[...(r.sp||[]).filter(x=>x[0]<r.d),[r.d,r.t]];let pt=0;
+  return`<table class="splits"><tbody>${pts.map(([d,t])=>{const seg=t-pt;pt=t;return`<tr><td class="muted">${d} m</td><td class="r">${fmt(t)}</td><td class="r muted">${fmt(seg)}</td></tr>`}).join("")}</tbody></table>`}
+function mppCell(lbl,r){return`<div><dt>${lbl}</dt><dd>${r?fmt(r.t):"—"}${r?`<small>${fmtDate(r.date)}</small>`:""}</dd></div>`}
+function noteBox(id,meta){
+  const n=C.notes[id]||{},t=n.tags||{};
+  return`<div class="nbox" data-nid="${esc(id)}" data-meta="${esc(JSON.stringify(meta))}"><div class="tags" role="group" aria-label="Exécution">${TAGS.map(([k,l])=>{const v=t[k]||0;
+    return`<button type="button" class="tag${v>0?" plus":v<0?" minus":""}" data-tag="${k}" aria-label="${l} : ${v>0?"réussi":v<0?"à travailler":"non noté"}">${l}<span>${v>0?" +":v<0?" −":""}</span></button>`}).join("")}</div>
+    <textarea class="ntxt" id="nt-${esc(id)}" rows="2" placeholder="Note sur la course">${esc(n.text||"")}</textarea></div>`}
+function noteMeta(m,e,a,ev){return{a,date:e.date,d:e.d,s:e.s,r:e.r,relay:!!e.relay,ev,meet:{key:m.info.key,name:m.info.name,city:m.info.city,course:e.c}}}
+
+function indCard(m,e,en,forAth,srcId){
+  const id=nidInd(en.a,e),x=X(m.id),dns=!!x.dns[id],fin=e.r!=="FIN"&&!!x.fin[id],man=x.t[id];
+  const c=e.c,p25=c==="SCM"?mppOf(en.a,e.d,e.s,"SCM",m.info.start):null,p50=mppOf(en.a,e.d,e.s,"LCM",m.info.start),ref=c==="SCM"?p25:p50,res=resultOf(en.a,e),lv=res?null:LIVE.result(m,e,en.a),eh=en.heat||(lv&&lv.heat)||null,el=en.lane||(lv&&lv.lane)||null;
+  const where=[eh?`Série ${eh}`:"",el?`couloir ${el}`:""].filter(Boolean).join(" · ");
+  const head=forAth?`<h4>${evLabel(e)}<small>Épr. ${e.n}${e.r&&e.r!=="TIM"?" · "+roundName(e.r):""}${e.time?" · "+e.time:""}</small></h4>`
+    :`<h4>${esc(en.first)} ${esc(en.last)}<small>${esc(where)}</small></h4>`;
+  const ec=en.ec&&en.ec!==c?`<small>bassin ${en.ec==="LCM"?"50":"25"} m</small>`:"";
+  let nums=`<div><dt>Inscription</dt><dd>${en.et?fmt(en.et):"NT"}${ec}</dd></div>`;
+  nums+=c==="SCM"?mppCell("MPP 25",p25)+mppCell("MPP 50",p50):mppCell("MPP 50",p50);
+  {const l=lastOf(en.a,e.d,e.s,c,m.info.start);nums+=mppCell(`Dernier ${c==="SCM"?"25":"50"}`,l)}
+  if(res)nums+=`<div class="res"><dt>Réalisé</dt><dd>${res.st?`<span class="pill dq">${esc(res.st)}</span>`:fmt(res.t)}${!res.st&&ref?`<small>${dSpan(res.t-ref.t,true)} vs MPP</small>`:""}</dd></div>`;
+  else if(lv&&lv.kind==="res")nums+=LIVE.nums(lv,ref,en.et);
+  else if(dns)nums+=`<div class="res"><dt>Réalisé</dt><dd><span class="pill dq">Forfait</span></dd></div>`;
+  else if(e.r==="FIN"){const pt=x.t[srcId];if(pt)nums+=`<div><dt>Temps séries</dt><dd>${fmt(pt)}${ref?`<small>${dSpan(pt-ref.t,true)} vs MPP</small>`:""}</dd></div>`}
+  else if(fin)nums+=`<div class="res"><dt><label for="rt-${esc(id)}">Temps séries</label></dt><dd><input class="tin rt" id="rt-${esc(id)}" data-nid="${esc(id)}" inputmode="decimal" autocomplete="off" placeholder="0:00.00" value="${man?fmt(man):""}">${man&&ref?`<small>${dSpan(man-ref.t,true)} vs MPP</small>`:""}</dd></div>`;
+  const days=[...new Set(m.sessions.map(s=>s.date))];
+  const act=e.r==="FIN"?`<div class="cact"><button type="button" class="cbtn" data-dns="${esc(id)}" aria-pressed="${dns}">Forfait</button>${days.length>1?`<label class="muted" style="font-size:13px">Jour <select class="tsel fday" data-src="${esc(srcId)}">${days.map(d=>`<option value="${d}"${d===e.date?" selected":""}>${dayShort(d)}</option>`).join("")}</select></label>`:""}</div>`
+    :`<div class="cact"><button type="button" class="cbtn" data-dns="${esc(id)}" aria-pressed="${dns}">Forfait</button><button type="button" class="cbtn" data-fin="${esc(id)}" data-date="${e.date}" aria-pressed="${fin}">${fin?"Finale ajoutée":"Finale"}</button></div>`;
+  const sp=ref&&ref.sp&&ref.sp.length?`<details class="spl"><summary>Passages de la MPP ${c==="SCM"?"25":"50"}</summary>${splitsTable(ref)}</details>`:"";
+  return`<div class="ccard${dns?" dns":""}${e.r==="FIN"?" fin":""}">${head}${forAth&&where?`<div class="muted" style="font-size:13px;margin-top:-4px">${esc(where)}</div>`:""}<dl class="nums">${nums}</dl>${act}${LIVE.extra(lv)}${sp}${noteBox(id,noteMeta(m,e,en.a,evLabel(e)+(e.r==="FIN"?" finale":"")))}</div>`}
+/* Finales ajoutées pendant la compétition : une carte de plus, même épreuve, round FIN. */
+function finalsOf(m,evs,ents){const x=X(m.id),out=[];
+  for(const en of ents){if(en.relay)continue;const e=evs[en.ev];if(!e)continue;const f=x.fin[nidInd(en.a,e)];
+    if(f)out.push({x:en,e:{...e,r:"FIN",date:f.date||e.date,sess:999,time:""},src:nidInd(en.a,e)})}
+  for(const lf of LIVE.finals(m,evs,ents))if(!out.some(o=>o.x.a===lf.x.a&&o.e.d===lf.e.d&&o.e.s===lf.e.s&&o.e.date===lf.e.date))out.push({...lf,src:nidInd(lf.x.a,evs[lf.x.ev])});
+  return out}
+function relCard(m,e,en,forAth){
+  const c=e.c;const legs=en.legs.filter(l=>!forAth||l.a===forAth);
+  const head=forAth?`<h4>Relais ${evLabel(e)}<small>Épr. ${e.n}${e.time?" · "+e.time:""}</small></h4>`:`<h4>${esc(en.team)}<small>${en.heat?"Série "+en.heat:""}${en.lane?" · couloir "+en.lane:""}</small></h4>`;
+  const legHtml=legs.map(l=>{const st=legStroke(e,l.pos),p=l.a?mppOf(l.a,e.d,st,c,m.info.start):null;
+    return`<div class="leg"><div class="who"><span><b>${l.pos}.</b> ${forAth?STROKE_LONG[st]:esc(l.first+" "+l.last)+` <span class="muted">${STROKES[st]}</span>`}</span><span class="num muted">MPP ${e.d} ${STROKES[st]} ${p?`<b style="color:var(--fg)">${fmt(p.t)}</b>`:"—"}</span></div>
+      ${l.a?noteBox(nidRel(l.a,e),{...noteMeta(m,e,l.a,"Relais "+evLabel(e)),d:e.d,s:st,leg:l.pos}):""}</div>`}).join("");
+  return`<div class="ccard">${head}<dl class="nums"><div><dt>Inscription</dt><dd>${en.et?fmt(en.et):"NT"}</dd></div><div><dt>Équipe</dt><dd style="font-size:15px">${forAth?esc(en.team):en.legs.length+" nageurs"}</dd></div></dl>${legHtml}</div>`}
+
+function renderComp(){
+  const v=$("viewComp");
+  if(!S.db){v.innerHTML=S.dbFailed?`<div class="card empty-state"><b>Base indisponible</b>Ouvre cette page connecté à ton compte Claude pour voir la feuille de route.</div>`:`<div class="card empty-state"><b>Chargement de la compétition…</b>La feuille de route apparaît dès que la base répond.</div>`;return}
+  const ms=[...C.meets].sort((a,b)=>b.info.start.localeCompare(a.info.start)),act=ms.filter(isActive),past=ms.filter(m=>!isActive(m));
+  let m=ms.find(x=>x.id===C.pick)||[...act].sort((a,b)=>a.info.start.localeCompare(b.info.start))[0]||null;
+  const sel=ms.length?`<span><label class="l" for="cMeet">Compétition</label><select id="cMeet" class="tsel">${act.length?"":`<option value=""${m?"":" selected"}>Aucune en cours</option>`}${act.map(x=>`<option value="${esc(x.id)}"${m&&m.id===x.id?" selected":""}>${esc(x.info.name)} · ${fmtDate(x.info.start)}</option>`).join("")}${past.length?`<optgroup label="Terminées">${past.map(x=>`<option value="${esc(x.id)}"${m&&m.id===x.id?" selected":""}>${esc(x.info.name)} · ${fmtDate(x.info.start)}</option>`).join("")}</optgroup>`:""}</select></span>`:"";
+  if(!m){v.innerHTML=`${sel?`<div class="ctl">${sel}</div>`:""}<div class="card empty-state"><b>Aucune compétition en cours</b>Une fois les inscriptions faites, importe le Lenex de tes engagements avec « Importer un Lenex » : la feuille de route se construit ici.<br>Elle quitte l'onglet deux jours après la dernière réunion ; tes notes restent dans la fiche de chaque nageur.${LIVE.pickerHtml()}</div>`;return}
+  const evs={};for(const e of m.events)evs[e.id]=e;
+  const ents=m.entries.filter(x=>evs[x.ev]),ind=ents.filter(x=>!x.relay),rel=ents.filter(x=>x.relay);
+  const people={};for(const x of ind)people[x.a]=x;for(const r of rel)for(const l of r.legs)if(l.a&&!people[l.a])people[l.a]=l;
+  const plist=Object.entries(people).sort((x,y)=>(x[1].last||"").localeCompare(y[1].last||"","fr"));
+  const days=[...new Set(m.sessions.map(s=>s.date))];
+  if(!days.includes(C.day))C.day=days.includes(isoToday())?isoToday():days.find(d=>d>=isoToday())||days[0];
+  if(!people[C.ath])C.ath=plist[0]?.[0]||null;
+  let h=`<div class="ctl">${sel}<span class="seg" role="group" aria-label="Affichage"><button data-cm="day" aria-pressed="${C.mode==="day"}">Par jour</button><button data-cm="ath" aria-pressed="${C.mode==="ath"}">Par nageur</button></span>
+    ${C.confirmDel?`<button class="btn ghost" id="cDel">Confirmer le retrait</button><button class="btn ghost" id="cDelNo">Annuler</button>`:`<button class="btn ghost" id="cDel">Retirer la feuille de route</button>`}</div>
+    ${C.confirmDel?`<p class="msg">Seule la feuille de route est retirée. Les notes restent dans les fiches nageurs.</p>`:""}
+    ${LIVE.bar(m)}<div class="ahead"><div><h2>${esc(m.info.name)}</h2><div class="meta"><span>${esc(m.info.city)}</span><span>${meetDates(m.info)}</span><span>Bassin ${m.info.course==="LCM"?"50":"25"} m</span>${isActive(m)?"":`<span class="pill dq">terminée</span>`}</div></div>
+    <div class="kpis"><div class="kpi"><b>${plist.length}</b><span>Nageurs</span></div><div class="kpi"><b>${ind.length}</b><span>Départs indiv.</span></div><div class="kpi"><b>${rel.length}</b><span>Relais</span></div></div></div>`;
+  const sessOf=e=>m.sessions.find(s=>s.n===e.sess&&s.date===e.date)||m.sessions.find(s=>s.n===e.sess)||{};
+  const sessHead=s=>`<h3 class="sh">Réunion ${s.n} <span class="muted shm">${s.warm?"échauffement "+s.warm:""}${s.warm&&s.time?" · ":""}${s.time?"début "+s.time:""}</span></h3>`;
+  if(C.mode==="day"){
+    h+=`<div class="ctl"><span class="seg dayseg" role="group" aria-label="Jour">${days.map(d=>`<button data-cd="${d}" aria-pressed="${d===C.day}">${dayShort(d)}</button>`).join("")}</span></div>`;
+    for(const s of m.sessions.filter(s=>s.date===C.day)){
+      const se=m.events.filter(e=>e.date===s.date&&e.sess===s.n).sort((a,b)=>a.n-b.n);if(!se.length)continue;
+      h+=`<section class="sess">${sessHead(s)}`;
+      for(const e of se){const el=ents.filter(x=>x.ev===e.id).sort((x,y)=>x.relay?0:(x.last||"").localeCompare(y.last||"","fr"));
+        h+=`<div class="evh"><b>Épr. ${e.n}</b><span class="evn">${evLabel(e)}</span><span class="muted">${GENDER[e.g]||""}${e.r&&e.r!=="TIM"?" · "+roundName(e.r):""}${e.time?" · "+e.time:""}</span></div>
+          <div class="cgrid">${el.map(x=>x.relay?relCard(m,e,x,null):indCard(m,e,x,false)).join("")}</div>`}
+      h+=`</section>`}
+    const fins=finalsOf(m,evs,ents).filter(f=>f.e.date===C.day).sort((p,q)=>p.e.n-q.e.n||(p.x.last||"").localeCompare(q.x.last||"","fr"));
+    if(fins.length){h+=`<section class="sess"><h3 class="sh">Finales</h3>`;let cur=null;
+      for(const f of fins){if(f.e.id!==cur){if(cur)h+=`</div>`;cur=f.e.id;h+=`<div class="evh"><b>Épr. ${f.e.n}</b><span class="evn">${evLabel(f.e)}</span><span class="muted">${GENDER[f.e.g]||""} · finale</span></div><div class="cgrid">`}
+        h+=indCard(m,f.e,f.x,false,f.src)}
+      h+=`</div></section>`}
+  }else{
+    h+=`<div class="ctl"><span><label class="l" for="cAth">Nageur</label><select id="cAth" class="tsel">${plist.map(([k,p])=>`<option value="${esc(k)}"${k===C.ath?" selected":""}>${esc(p.first)} ${esc(p.last)}</option>`).join("")}</select></span></div>`;
+    const mine=[...ents.filter(x=>x.relay?x.legs.some(l=>l.a===C.ath):x.a===C.ath).map(x=>({x,e:evs[x.ev]})),...finalsOf(m,evs,ents).filter(f=>f.x.a===C.ath)].sort((p,q)=>p.e.date.localeCompare(q.e.date)||p.e.sess-q.e.sess||p.e.n-q.e.n);
+    let day=null,ses=null;
+    for(const{x,e,src}of mine){
+      if(e.date!==day){if(day)h+=`</div></section>`;day=e.date;ses=null;h+=`<section class="sess"><h3 class="sh daytitle">${dayLong(e.date)}</h3><div class="cgrid">`}
+      if(e.sess!==ses){ses=e.sess;const s=sessOf(e);h+=`<div class="sesslbl">${e.sess===999?"Finales":`Réunion ${e.sess}${s.warm?" · échauffement "+s.warm:""}${s.time?" · début "+s.time:""}`}</div>`}
+      h+=x.relay?relCard(m,e,x,C.ath):indCard(m,e,x,true,src)}
+    if(day)h+=`</div></section>`;else h+=`<div class="card empty-state"><b>Aucune course</b>Ce nageur n'a pas d'engagement dans cette compétition.</div>`;
+  }
+  h+=`<div class="legend">Touche une étiquette pour la noter : une fois = réussi (+), deux fois = à travailler (−), trois fois = effacée. Les notes s'enregistrent seules et apparaissent ensuite dans la fiche du nageur, à côté du temps réalisé. MPP = meilleur temps avant cette compétition ; Dernier = dernière course dans le bassin de la compétition. « Finale » ajoute une carte dans la section Finales du jour et ouvre la saisie du temps des séries, repris sur la carte de finale.</div><div id="cStatus" class="msg" aria-live="polite"></div>`;
+  v.innerHTML=h;
+  v.querySelectorAll(".ntxt").forEach(autoSize);
+}
+function curMeet(){return C.meets.find(x=>x.id===C.pick)||C.meets.filter(isActive).sort((a,b)=>a.info.start.localeCompare(b.info.start))[0]||null}
+function autoSize(t){t.style.height="auto";t.style.height=Math.max(38,t.scrollHeight+2)+"px"}
+function setCStatus(t,bad){const el=$("cStatus");if(el){el.textContent=t;el.className="msg"+(bad?" err":"")}}
+const typingNote=()=>!!document.activeElement?.classList?.contains("ntxt");
+const noteQ={},notePend={},noteTimer={};
+function writeNote(box){
+  const id=box.dataset.nid,meta=JSON.parse(box.dataset.meta),ta=box.querySelector(".ntxt");
+  const cur=C.notes[id]||{},tags=Object.fromEntries(Object.entries(cur.tags||{}).filter(([,v])=>v)),text=(ta?ta.value:cur.text||"").trim();
+  C.notes[id]={...meta,tags,text};notePend[id]=(notePend[id]||0)+1;
+  const ref=S.db.collection("notes").doc(id),empty=!text&&!Object.keys(tags).length;
+  noteQ[id]=(noteQ[id]||Promise.resolve()).then(()=>empty?ref.delete():ref.set({...meta,tags,text,upd:new Date().toISOString()}))
+    .then(()=>setCStatus("Note enregistrée"),err=>setCStatus("Note non enregistrée ("+(err.code||"erreur")+"). Modifie-la à nouveau pour réessayer.",true))
+    .finally(()=>{notePend[id]--});
+}
+$("viewComp").addEventListener("click",e=>{
+  const tg=e.target.closest(".tag");
+  if(tg){const box=tg.closest(".nbox"),id=box.dataset.nid,k=tg.dataset.tag,cur=C.notes[id]||{tags:{}};const v=(cur.tags||{})[k]||0,nv=v===0?1:v===1?-1:0;
+    C.notes[id]={...cur,tags:{...(cur.tags||{}),[k]:nv}};const l=TAGS.find(t=>t[0]===k)[1];
+    tg.className="tag"+(nv>0?" plus":nv<0?" minus":"");tg.querySelector("span").textContent=nv>0?" +":nv<0?" −":"";tg.setAttribute("aria-label",`${l} : ${nv>0?"réussi":nv<0?"à travailler":"non noté"}`);
+    writeNote(box);return}
+  const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.cm){C.mode=b.dataset.cm;saveC();renderComp()}
+  else if(b.dataset.cd){C.day=b.dataset.cd;renderComp()}
+  else if(b.id==="cDel"){if(!C.confirmDel){C.confirmDel=true;renderComp();return}
+    const m=C.meets.find(x=>x.id===C.pick)||C.meets.filter(isActive).sort((a,b)=>a.info.start.localeCompare(b.info.start))[0];if(!m)return;
+    S.db.collection("meets").doc(m.id).delete().then(()=>{C.confirmDel=false;C.pick=null},err=>{C.confirmDel=false;renderComp();setCStatus("Retrait refusé ("+(err.code||"erreur")+").",true)})}
+  else if(b.id==="cDelNo"){C.confirmDel=false;renderComp()}
+});
+$("viewComp").addEventListener("click",e=>{const b=e.target.closest(".cbtn");if(!b)return;const m=curMeet();if(!m)return;
+  if(b.dataset.dns){const id=b.dataset.dns;writeX(m.id,x=>{if(x.dns[id])delete x.dns[id];else{x.dns[id]=1;delete x.t[id]}})}
+  else if(b.dataset.fin){const id=b.dataset.fin;writeX(m.id,x=>{if(x.fin[id])delete x.fin[id];else x.fin[id]={date:b.dataset.date}})}
+  renderComp()});
+$("viewComp").addEventListener("change",e=>{
+  if(e.target.classList.contains("rt")){const t=e.target,id=t.dataset.nid,m=curMeet();if(!m)return;const v=t.value.trim()?parseTime(t.value):null;
+    if(v!==null&&!(v>=1000&&v<=180000)){t.classList.add("bad");setCStatus("Temps non reconnu. Exemples : 31.45 ou 1:04.32.",true);return}
+    t.classList.remove("bad");writeX(m.id,x=>{if(v)x.t[id]=v;else delete x.t[id]});renderComp();return}
+  if(e.target.classList.contains("fday")){const src=e.target.dataset.src,m=curMeet();if(!m||!src)return;writeX(m.id,x=>{if(x.fin[src])x.fin[src]={...x.fin[src],date:e.target.value}});renderComp();return}
+  if(e.target.id==="cMeet"){C.pick=e.target.value||null;C.day=null;C.confirmDel=false;renderComp()}
+  else if(e.target.id==="cAth"){C.ath=e.target.value;saveC();renderComp()}
+});
+$("viewComp").addEventListener("input",e=>{const t=e.target;if(!t.classList.contains("ntxt"))return;autoSize(t);const box=t.closest(".nbox"),id=box.dataset.nid;
+  clearTimeout(noteTimer[id]);noteTimer[id]=setTimeout(()=>{noteTimer[id]=null;writeNote(box)},900)});
+$("viewComp").addEventListener("focusout",e=>{const t=e.target;if(!t.classList?.contains("ntxt"))return;const box=t.closest(".nbox"),id=box.dataset.nid;
+  if(noteTimer[id]){clearTimeout(noteTimer[id]);noteTimer[id]=null;writeNote(box)}});
+
+/* Notes affichées dans la fiche nageur. */
+function noteLine(n){const t=n.tags||{};
+  return`<span class="nline">${TAGS.filter(([k])=>t[k]).map(([k,l])=>`<span class="tg ${t[k]>0?"plus":"minus"}">${l} ${t[k]>0?"+":"−"}</span>`).join("")}${n.text?`<span>${esc(n.text)}</span>`:""}</span>`}
+function noteFor(a,r){const n=C.notes[`${a}__${r.date}__${r.d}-${r.s}${r.r==="FIN"?"-FIN":""}`];return n&&!n.relay?n:null}
+function refreshNoteBoxes(){document.querySelectorAll("#viewComp .nbox").forEach(box=>{const id=box.dataset.nid;if(notePend[id]>0||noteTimer[id])return;const n=C.notes[id]||{},t=n.tags||{};
+  box.querySelectorAll(".tag").forEach(tg=>{const v=t[tg.dataset.tag]||0;tg.className="tag"+(v>0?" plus":v<0?" minus":"");tg.querySelector("span").textContent=v>0?" +":v<0?" −":""});
+  const ta=box.querySelector(".ntxt");if(ta&&document.activeElement!==ta&&ta.value!==(n.text||"")){ta.value=n.text||"";autoSize(ta)}})}
+
+/* ---------- base ---------- */
+(async()=>{
+  const db=await Store.ready();SYNC.mount();SYNC.hashConfig();
+  if(!db){S.dbFailed=true;if(S.view==="comp")renderComp();$("athBody").innerHTML=`<div class="card empty-state"><b>Base indisponible</b>Ouvre cette page connecté à ton compte Claude pour voir les temps.</div>`;return}
+  S.db=db;let gotA=false,gotS=false;
+  db.collection("athletes").onSnapshot(s=>{S.athletes={};s.docs.forEach(d=>S.athletes[d.id]=d.data());gotA=true;if(gotS)render()},e=>console.warn(e));
+  /* Deux formes coexistent : un document par nageur et par compétition (imports Lenex),
+     et un document d'historique par nageur (hist__…, chargé depuis swimdata) qui regroupe ses compétitions.
+     En cas de doublon sur la même compétition, le document de compétition l'emporte. */
+  db.collection("swims").onSnapshot(s=>{
+    const m=new Map();
+    for(const d of s.docs){const x=d.data();if(Array.isArray(x.meets))for(const mm of x.meets){const k=x.athlete+"|"+mm.meet.key;if(!m.has(k))m.set(k,{athlete:x.athlete,...mm})}}
+    for(const d of s.docs){const x=d.data();if(!Array.isArray(x.meets))m.set(x.athlete+"|"+x.meet.key,x)}
+    S.swims=[...m.values()];gotS=true;if(gotA)render()},e=>console.warn(e));
+  /* Tests : on ne redessine pas pendant une saisie (la case active perdrait le focus). */
+  db.collection("tests").onSnapshot(s=>{T.sessions=s.docs.map(d=>({id:d.id,...d.data()}));
+    const typing=document.activeElement&&document.activeElement.classList?.contains("tin");
+    if(S.view==="tests"&&!typing)renderTests()},e=>console.warn(e));
+  db.collection("meetx").onSnapshot(s=>{const n={};s.docs.forEach(d=>{const v=d.data();n[d.id]={dns:v.dns||{},fin:v.fin||{},t:v.t||{}}});C.x=n;
+    if(S.view==="comp"&&!typingNote()&&!document.activeElement?.classList?.contains("rt"))renderComp()},e=>console.warn(e));
+  db.collection("meets").onSnapshot(s=>{C.meets=s.docs.map(d=>({id:d.id,...d.data()})).filter(m=>m.info&&Array.isArray(m.events)&&Array.isArray(m.entries));
+    if(S.view==="comp"&&!typingNote())renderComp()},e=>console.warn(e));
+  /* Une note en cours d'écriture garde sa version locale : l'écho d'une écriture précédente ne doit pas l'écraser. */
+  db.collection("notes").onSnapshot(s=>{const n={};s.docs.forEach(d=>n[d.id]=d.data());
+    for(const id in notePend)if(notePend[id]>0||noteTimer[id]){if(C.notes[id])n[id]=C.notes[id];else delete n[id]}
+    C.notes=n;if(S.view==="comp")refreshNoteBoxes();else if(S.view==="ath")renderAth()},e=>console.warn(e));
+})();
+syncSeg();
+if("serviceWorker"in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+
+</body></html>
