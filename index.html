@@ -831,7 +831,7 @@ function noteMeta(m,e,a,ev){return{a,date:e.date,d:e.d,s:e.s,r:e.r,relay:!!e.rel
 function indCard(m,e,en,forAth,srcId){
   const id=nidInd(en.a,e),x=X(m.id),dns=!!x.dns[id],fin=e.r!=="FIN"&&!!x.fin[id],man=x.t[id];
   const c=e.c,p25=c==="SCM"?mppOf(en.a,e.d,e.s,"SCM",m.info.start):null,p50=mppOf(en.a,e.d,e.s,"LCM",m.info.start),ref=c==="SCM"?p25:p50,res=resultOf(en.a,e),lv=res?null:LIVE.result(m,e,en.a),eh=en.heat||(lv&&lv.heat)||null,el=en.lane||(lv&&lv.lane)||null;
-  const where=[eh?`Série ${eh}`:"",el?`couloir ${el}`:""].filter(Boolean).join(" · ");
+  const where=[LIVE.heatLabel(eh,lv&&lv.heats),el?`couloir ${el}`:"",lv&&lv.time?lv.time:""].filter(Boolean).join(" · ");
   const head=forAth?`<h4>${evLabel(e)}<small>Épr. ${e.n}${e.r&&e.r!=="TIM"?" · "+roundName(e.r):""}${e.time?" · "+e.time:""}</small></h4>`
     :`<h4>${esc(en.first)} ${esc(en.last)}<small>${esc(where)}</small></h4>`;
   const ec=en.ec&&en.ec!==c?`<small>bassin ${en.ec==="LCM"?"50":"25"} m</small>`:"";
@@ -848,7 +848,7 @@ function indCard(m,e,en,forAth,srcId){
   const act=e.r==="FIN"?`<div class="cact"><button type="button" class="cbtn" data-dns="${esc(id)}" aria-pressed="${dns}">Forfait</button></div>`
     :`<div class="cact"><button type="button" class="cbtn" data-dns="${esc(id)}" aria-pressed="${dns}">Forfait</button></div>`;
   const sp=ref&&ref.sp&&ref.sp.length?`<details class="spl"><summary>Passages de la MPP ${c==="SCM"?"25":"50"}</summary>${splitsTable(ref)}</details>`:"";
-  return`<div class="ccard${dns?" dns":""}${e.r==="FIN"?" fin":""}">${head}${forAth&&where?`<div class="muted" style="font-size:13px;margin-top:-4px">${esc(where)}</div>`:""}<dl class="nums">${nums}</dl>${act}${lv&&lv.kind==="res"&&lv.swim!=null?LIVE.extra(lv,ref):sp}${noteBox(id,noteMeta(m,e,en.a,evLabel(e)+(e.r==="FIN"?" finale":"")))}</div>`}
+  return`<div class="ccard${dns?" dns":""}${e.r==="FIN"?" fin":""}${LIVE.isFresh(m,e,en.a)?" fresh":""}">${head}${forAth&&where?`<div class="muted" style="font-size:13px;margin-top:-4px">${esc(where)}</div>`:""}<dl class="nums">${nums}</dl>${act}${lv&&lv.kind==="res"&&lv.swim!=null?LIVE.extra(lv,ref):sp}${noteBox(id,noteMeta(m,e,en.a,evLabel(e)+(e.r==="FIN"?" finale":"")))}</div>`}
 /* Finales ajoutées pendant la compétition : une carte de plus, même épreuve, round FIN. */
 function finalsOf(m,evs,ents){const x=X(m.id),out=[];
   for(const en of ents){if(en.relay)continue;const e=evs[en.ev];if(!e)continue;const f=x.fin[nidInd(en.a,e)];
@@ -913,6 +913,7 @@ function renderComp(){
   h+=`<div class="legend">Touche une étiquette pour la noter : une fois = réussi (+), deux fois = à travailler (−), trois fois = effacée. Les notes s'enregistrent seules et apparaissent ensuite dans la fiche du nageur, à côté du temps réalisé. MPP = meilleur temps avant cette compétition ; Dernier = dernière course dans le bassin de la compétition. Les finales s’ajoutent toutes seules depuis le direct ; sur la carte de finale, le temps des séries remplace le temps d’inscription.</div><div id="cStatus" class="msg" aria-live="polite"></div>`;
   v.innerHTML=h;
   v.querySelectorAll(".ntxt").forEach(autoSize);
+  LIVE.restoreOpen();
 }
 function curMeet(){return C.meets.find(x=>x.id===C.pick)||C.meets.filter(isActive).sort((a,b)=>a.info.start.localeCompare(b.info.start))[0]||null}
 function autoSize(t){t.style.height="auto";t.style.height=Math.max(38,t.scrollHeight+2)+"px"}

@@ -67,14 +67,35 @@ async function refresh(m,force){
       const td=todayIso();
       for(const[k,x]of Object.entries(st.events||{}))if(isRelayEv(x)&&x.date<=td){evR.add(k);evE.add(k)}
       const nR=[...evR].filter(e=>!st.res[e]||st.res[e].status!==5),rr=await pool(nR,6,e=>getJ(`/meets/${id}/results/${e}.json`));nR.forEach((e,i)=>{if(rr[i])st.res[e]=rr[i]});
+      for(const e of evR)evE.add(e);
       const nH=[...evE].filter(e=>!st.heats[e]||st.heats[e].status!==5),hh=await pool(nH,6,e=>getJ(`/meets/${id}/heats/${e}.json`));nH.forEach((e,i)=>{if(hh[i])st.heats[e]=hh[i]});
       if(st.club)st.clubFile=await getJ(`/meets/${id}/clubs/${st.club}.json`).catch(()=>st.clubFile);
+      detectNew(st);
       st.stamp=stamp;st.changed=true;
     }
     st.lastOk=Date.now();st.err=null;saveSr(st);
   }catch(e){st.err="hors ligne";st.changed=true}
   L.busy=false;
 }
+/* Nouveaux résultats de mes nageurs : vibration du téléphone et badge « Nouveau » pendant 15 min. */
+const FRESH_MS=15*60000;
+function resultKeys(st){
+  const keys=[],roster=rosterKeys();
+  for(const k of roster){const a=st.byKey[k];const f=a&&st.ath[a.id];if(!f)continue;for(const r of f.results||[])if(r.swimtime||r.status)keys.push(a.id+"|"+r.eventid)}
+  const sw=new Set(Object.values(S.athletes||{}).map(a=>String(a.swrid||"")).filter(Boolean));
+  for(const[eid,x]of Object.entries(st.events||{})){if(!isRelayEv(x))continue;for(const o of relayRows(st,eid)){const r=o.row;if(!o.res||!(r.swimtime||r.status))continue;
+    if((r.athletes||[]).some(a=>sw.has(String(a.swrid||""))))keys.push("R|"+eid+"|"+(r.teamnumber||r.id))}}
+  return keys}
+function detectNew(st){
+  const sk="cl-seen-"+st.id,seen=ls.get(sk,null),now=Date.now(),keys=resultKeys(st);
+  st.fresh=st.fresh||ls.get("cl-fresh-"+st.id,{});
+  if(seen){const S0=new Set(seen);let n=0;for(const k of keys)if(!S0.has(k)){st.fresh[k]=now;n++}
+    if(n&&navigator.vibrate)try{navigator.vibrate([120,80,120])}catch(e){}}
+  for(const k of Object.keys(st.fresh))if(now-st.fresh[k]>FRESH_MS)delete st.fresh[k];
+  ls.set(sk,keys);ls.set("cl-fresh-"+st.id,st.fresh)}
+function isFreshKey(st,k){const t=st&&st.fresh&&st.fresh[k];return!!t&&Date.now()-t<FRESH_MS}
+function isFresh(m,e,a){const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return false;const sa=st.byKey[a];if(!sa)return false;const se=srEventFor(st,e);return!!se&&isFreshKey(st,sa.id+"|"+se.id)}
+const NEW_PILL='<span class="pill" style="background:var(--lane);color:#fff;font-size:10px;padding:1px 7px;margin-left:6px">Nouveau</span>';
 function todayIso(){const t=new Date();return`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`}
 /* Actualisation automatique seulement pendant la compétition : jour de compétition,
    d'une heure avant la première épreuve du jour à deux heures après la dernière. Sinon : bouton Actualiser. */
@@ -90,6 +111,13 @@ function srEventFor(st,e){
   if(ok(direct)&&(srRound(direct)==="FIN")===(e.r==="FIN"))return direct;
   return Object.values(st.events).find(x=>x&&typeof x==="object"&&ok(x)&&x.date===e.date&&(srRound(x)==="FIN")===(e.r==="FIN"))||null}
 const parseSp=(sp,d,swim)=>{const a=Object.entries(sp||{}).map(([k,v])=>[parseInt(k,10),cs(v)]).filter(x=>x[0]>0&&x[1]!=null).sort((x,y)=>x[0]-y[0]);if(swim!=null&&d&&(!a.length||a[a.length-1][0]<d))a.push([d,swim]);return a};
+/* Série d'un nageur : numéro, nombre total de séries de l'épreuve, heure exacte de la série. */
+function heatOf(st,eid,aid,code){const H=st.heats[String(eid)];if(!H||!H.heats)return{};const hs=H.heats.filter(x=>x&&(x.entries||[]).length&&((x.heatinfo&&x.heatinfo.key)||"")!=="R"&&String((x.heatinfo&&x.heatinfo.code)||x.code)!=="R");
+  const ht=hs.find(x=>(x.entries||[]).some(y=>String(y.athleteid)===String(aid)))||hs.find(x=>String((x.heatinfo&&x.heatinfo.code)||x.code)===String(code));
+  const maxN=Math.max(0,...hs.map(x=>+((x.heatinfo&&x.heatinfo.code)||x.code)||0));
+  return{total:Math.max(hs.length,maxN)||null,time:ht?((ht.heatinfo&&ht.heatinfo.time)||ht.time||""):"",code:ht?((ht.heatinfo&&ht.heatinfo.code)||ht.code):null,lane:ht?((ht.entries||[]).find(y=>String(y.athleteid)===String(aid))||{}).lane:null}}
+/* « Série 4/9 » ; en finale, les séries s'appellent A, B, C : « Finale A ». */
+function heatLabel(code,total){if(code==null||code==="")return"";return/^\d+$/.test(String(code))?`Série ${code}${total?"/"+total:""}`:`Finale ${code}`}
 /* Résultat direct d'un nageur du carnet (clé a) sur une épreuve du carnet. */
 function result(m,e,a){
   const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return null;
@@ -101,11 +129,11 @@ function result(m,e,a){
     if(g){ranking=g.results||[];const ok=ranking.filter(x=>+x.place>0&&cs(x.swimtime)!=null).sort((x,y)=>x.place-y.place);field=ok.length;winner=ok[0]?cs(ok[0].swimtime):null;second=ok[1]?cs(ok[1].swimtime):null}
     const agd=st.agegroups&&st.agegroups[r.agegroupid];ag=agd&&agd.name?agd.name.trim():"";
     if(place===1&&winner==null)winner=swim;
+    const hi=heatOf(st,r.eventid,sa.id,r.heatinfo&&r.heatinfo.code);
     return{kind:"res",swim,place,field,winner,second,ranking,ag,status:r.status?String(r.status):"",pb:r.pbest?cs(r.pbest.swimtime):null,flag:r.flag&&r.flag.text||"",
-      points:+r.points||null,rt:r.reactiontime||"",heat:r.heatinfo&&r.heatinfo.code,lane:r.lane,time:r.heatinfo&&r.heatinfo.time,sp:parseSp(r.splits,e.d,swim),me:String(sa.id),d:e.d}}
-  const H=st.heats[String(se.id)];
-  if(H)for(const ht of H.heats||[])for(const x of ht.entries||[])if(String(x.athleteid)===String(sa.id))return{kind:"entry",heat:(ht.heatinfo&&ht.heatinfo.code)||ht.code,lane:x.lane,time:(ht.heatinfo&&ht.heatinfo.time)||ht.time};
-  return null}
+      fresh:isFreshKey(st,sa.id+"|"+r.eventid),points:+r.points||null,rt:r.reactiontime||"",heat:(r.heatinfo&&r.heatinfo.code)||hi.code,heats:hi.total,lane:r.lane||hi.lane,time:(r.heatinfo&&r.heatinfo.time)||hi.time,sp:parseSp(r.splits,e.d,swim),me:String(sa.id),d:e.d}}
+  const hi=heatOf(st,se.id,sa.id,null);
+  return hi.code?{kind:"entry",heat:hi.code,heats:hi.total,lane:hi.lane,time:hi.time}:null}
 /* Temps des séries pour une carte de finale : remplace le temps d'inscription. */
 function prelim(m,e,a){
   const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return null;
@@ -120,27 +148,28 @@ function nums(lv,ref,et,isFinal){
   const unr=!(lv.place>0);
   if(lv.swim==null)return`<div class="res"><dt>Direct</dt><dd><span class="pill dq">${h(RSTAT[lv.status]||"Non classé")}</span></dd></div>`;
   const toWin=lv.place===1?(lv.second!=null?lv.swim-lv.second:null):(lv.winner!=null?lv.swim-lv.winner:null);
-  return`<div class="res"><dt>Réalisé <span class="pill" style="font-size:10px;padding:0 6px">direct</span></dt><dd>${tf(lv.swim)}${ref?`<small>${gp(lv.swim-ref.t)} vs MPP</small>`:lv.pb!=null?`<small>${gp(lv.swim-lv.pb)} vs record</small>`:""}</dd></div>
+  return`<div class="res"><dt>Réalisé <span class="pill" style="font-size:10px;padding:0 6px">direct</span>${lv.fresh?NEW_PILL:""}</dt><dd>${tf(lv.swim)}${ref?`<small>${gp(lv.swim-ref.t)} vs MPP</small>`:lv.pb!=null?`<small>${gp(lv.swim-lv.pb)} vs record</small>`:""}</dd></div>
     <div><dt>Place${lv.ag?" "+h(lv.ag):""}</dt><dd>${unr?`<span class="pill dq">${h(RSTAT[lv.status]||"Non classé")}</span>`:`${lv.place===1?"1er":lv.place+"e"}${lv.field?` <small style="display:inline">/ ${lv.field}</small>`:""}`}${lv.flag==="PB"?'<small style="color:var(--good)">record perso</small>':""}</dd></div>
     <div><dt>${lv.place===1?"Avance 2e":"Au 1er"}</dt><dd>${gp(toWin)}</dd></div>
     ${et?`<div><dt>${isFinal?"vs séries":"vs inscription"}</dt><dd>${gp(lv.swim-et)}</dd></div>`:""}`}
-/* Temps de passage du direct comparés à ceux de la MPP (carnet), puis classement. */
+/* Temps de passage du direct : chaque 100 m et chaque 50 m comparés au même segment de la MPP (carnet). */
 function extra(lv,ref){
   if(!lv||lv.kind!=="res"||lv.swim==null)return"";
   let out="";
   if(lv.sp.length>1){
-    const mpp={};if(ref){for(const[d,t]of ref.sp||[])mpp[d]=t;mpp[lv.d]=ref.t}
-    let pd=0,pt=0;const rows=lv.sp.map(([d,t])=>{const lap=t-pt,len=d-pd,md=mpp[d],mp=pd===0?(md??null):(md!=null&&mpp[pd]!=null?md-mpp[pd]:null);pd=d;pt=t;return{d,t,lap,len,p50:lap*50/len,md,mp}});
-    const p=rows.map(x=>x.p50),body=p.slice(1),srt=(body.length?body:p).slice().sort((a,b)=>a-b),med=srt[Math.floor(srt.length/2)];
-    const hasM=rows.some(x=>x.md!=null);
-    const half=rows.find(x=>x.d===lv.d/2),mh=mpp[lv.d/2];
-    out+=`<details class="spl" open><summary>Temps de passage${hasM?" · comparaison MPP":""}</summary><table class="splits cmp"><thead><tr><th class="muted" style="font-weight:500">Dist.</th><th class="r muted" style="font-weight:500">Passage</th>${hasM?'<th class="r muted" style="font-weight:500">vs MPP</th>':""}<th class="r muted" style="font-weight:500">Partiel</th>${hasM?'<th class="r muted" style="font-weight:500">vs MPP</th>':""}</tr></thead><tbody>${rows.map((x,i)=>`<tr><td class="muted">${x.d}</td>
-      <td class="r">${tf(x.t)}${x.md!=null?`<div class="pc">${tf(x.md)}</div>`:""}</td>${hasM?`<td class="r">${x.md!=null?gp(x.t-x.md):""}</td>`:""}
-      <td class="r"${i>0&&x.p50>med*1.03?' style="color:var(--lane);font-weight:600"':""}>${tf(x.lap)}${x.mp!=null?`<div class="pc">${tf(x.mp)}</div>`:""}</td>${hasM?`<td class="r">${x.mp!=null?gp(x.lap-x.mp):""}</td>`:""}</tr>`).join("")}</tbody></table>
-      ${half&&lv.d>=100?`<div class="legend" style="color:var(--fg)">1re moitié ${tf(half.t)} · 2e moitié ${tf(lv.swim-half.t)} · différentiel ${gp(lv.swim-2*half.t)} (${pct(lv.swim-2*half.t,half.t)})${mh!=null&&ref?`<br><span class="muted">MPP : ${tf(mh)} / ${tf(ref.t-mh)} · différentiel ${gp(ref.t-2*mh)} (${pct(ref.t-2*mh,mh)})</span>`:""}</div>`:""}
-      <div class="legend">Sous chaque temps, en petit : la MPP au même passage. Partiel en orange : plus de 3 % plus lent que la médiane des partiels (départ exclu). Différentiel en % : 2e moitié − 1re moitié, rapporté à la 1re moitié.</div></details>`}
+    const T={0:0};for(const[d,t]of lv.sp)T[d]=t;
+    const M={};if(ref){M[0]=0;for(const[d,t]of ref.sp||[])M[d]=t;M[lv.d]=ref.t}
+    const seg=(X,a,b)=>X[a]!=null&&X[b]!=null?X[b]-X[a]:null;
+    let pd=0;const rows=lv.sp.map(([d])=>{const len=d-pd,r={d,cum:T[d],len,lap:seg(T,pd,d),mlap:seg(M,pd,d),h:d%100===0&&d>=100?seg(T,d-100,d):null,mh:d%100===0&&d>=100?seg(M,d-100,d):null};pd=d;return r});
+    const p=rows.map(x=>x.lap*50/x.len),body=p.slice(1),srt=(body.length?body:p).slice().sort((a,b)=>a-b),med=srt[Math.floor(srt.length/2)];
+    const has100=lv.d>=200||rows.some(x=>x.h!=null&&x.d<lv.d),lapLbl=rows.every(x=>x.len===50)?"50 m":"Partiel";
+    const cell=(t,m)=>t==null?"<td></td><td></td>":`<td class="r">${tf(t)}${m!=null?`<div class="pc">${tf(m)}</div>`:""}</td><td class="r">${m!=null?gp(t-m):""}</td>`;
+    const half=T[lv.d/2],mh=M[lv.d/2];
+    out+=`<details class="spl" data-k="sp"><summary>Temps de passage${ref?" · comparaison MPP":""}</summary><table class="splits cmp"><thead><tr><th class="muted" style="font-weight:500">Dist.</th>${has100?'<th class="r muted" style="font-weight:500">100 m</th><th></th>':""}<th class="r muted" style="font-weight:500">${lapLbl}</th><th></th></tr></thead><tbody>${rows.map((x,i)=>`<tr><td class="muted">${x.d}<div class="pc" style="text-align:left">${tf(x.cum)}</div></td>${has100?cell(x.h,x.mh):""}${cell(x.lap,x.mlap).replace('<td class="r">',i>0&&p[i]>med*1.03?'<td class="r" style="color:var(--lane);font-weight:600">':'<td class="r">')}</tr>`).join("")}</tbody></table>
+      ${half!=null&&lv.d>=100?`<div class="legend" style="color:var(--fg)">1re moitié ${tf(half)} · 2e moitié ${tf(lv.swim-half)} · différentiel ${gp(lv.swim-2*half)} (${pct(lv.swim-2*half,half)})${mh!=null&&ref?`<br><span class="muted">MPP : ${tf(mh)} / ${tf(ref.t-mh)} · différentiel ${gp(ref.t-2*mh)} (${pct(ref.t-2*mh,mh)})</span>`:""}</div>`:""}
+      <div class="legend">Chaque segment est comparé au même segment de la MPP (en petit dessous) ; sous la distance, le temps de passage. 50 m en orange : plus de 3 % plus lent que la médiane (départ exclu).</div></details>`}
   if(lv.ranking&&lv.ranking.length){const rows=lv.ranking.slice().sort((a,b)=>(+a.place>0?+a.place:999)-(+b.place>0?+b.place:999));
-    out+=`<details class="spl"><summary>Classement${lv.ag?" "+h(lv.ag):""}</summary><table class="splits"><tbody>${rows.map(x=>`<tr${String(x.athleteid)===lv.me?' style="font-weight:600;background:var(--accent-soft)"':""}><td>${+x.place>0?x.place:"—"}</td><td>${h(x.nametext||"")}<div class="muted" style="font-size:12px">${h(x.clubname||x.clubcode||"")}${x.agetext?" · "+h(x.agetext):""}</div></td><td class="r">${x.swimtime?h(x.swimtime):h(RSTAT[x.status]||"—")}</td></tr>`).join("")}</tbody></table></details>`}
+    out+=`<details class="spl" data-k="rk"><summary>Classement${lv.ag?" "+h(lv.ag):""}</summary><table class="splits"><tbody>${rows.map(x=>`<tr${String(x.athleteid)===lv.me?' style="font-weight:600;background:var(--accent-soft)"':""}><td>${+x.place>0?x.place:"—"}</td><td>${h(x.nametext||"")}<div class="muted" style="font-size:12px">${h(x.clubname||x.clubcode||"")}${x.agetext?" · "+h(x.agetext):""}</div></td><td class="r">${x.swimtime?h(x.swimtime):h(RSTAT[x.status]||"—")}</td></tr>`).join("")}</tbody></table></details>`}
   return out}
 /* Finales récupérées automatiquement depuis le direct. */
 function finals(m,evs,ents){
@@ -170,32 +199,41 @@ function relayRows(st,eid){
     const hit=pool.find(x=>(x.teamnumber!=null&&String(x.teamnumber)===String(o.row.teamnumber))||(x.id!=null&&String(x.id)===String(o.row.id)))||(pool.length===1?pool[0]:null);if(hit)o.extra=hit}
   return out}
 function relayCards(m,day,ath){
-  const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main||!st.club)return"";
-  const course=String(st.main.course)==="1"?"LCM":"SCM";const byId={};for(const[k,a]of Object.entries(st.byKey||{}))byId[String(a.id)]={k,a};
-  const evs=Object.entries(st.events||{}).filter(([,x])=>isRelayEv(x)&&(!day||x.date===day)).sort((p,q)=>(p[1].date+p[1].time).localeCompare(q[1].date+q[1].time)||(+p[1].number)-(+q[1].number));
+  const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return"";
+  const course=String(st.main.course)==="1"?"LCM":"SCM";
+  const bySr={},byId={};for(const[k,a]of Object.entries(S.athletes||{}))if(a.swrid)bySr[String(a.swrid)]=k;
+  for(const[k,a]of Object.entries(st.byKey||{}))if(S.athletes[k])byId[String(a.id)]=k;
+  const mineOf=l=>bySr[String(l.swrid||"")]||byId[l.aid]||null;
+  const evs=Object.entries(st.events||{}).filter(([,x])=>isRelayEv(x)&&(!day||x.date===day)).sort((p,q)=>(p[1].date+(p[1].time||"")).localeCompare(q[1].date+(q[1].time||""))||(+p[1].number)-(+q[1].number));
   let html="";
   for(const[eid,x]of evs){
     const legN=parseInt(String(x.distance).replace(/^.*x\s*/i,""),10)||0,count=parseInt(x.distance,10)||4,stroke=SR_STROKE[String(x.stroke)]||"FREE";
     const e={id:eid,n:+x.number||0,d:legN,s:stroke,rc:count,relay:true,r:srRound(x),date:x.date,c:course};
     for(const o of relayRows(st,eid)){
-      const r=o.row,legs=legsOf(r).length?legsOf(r):legsOf(o.extra);
-      if(ath&&!legs.some(l=>byId[l.aid]&&byId[l.aid].k===ath))continue;
-      const swim=cs(r.swimtime),place=+r.place,sp=parseSp(r.splits,legN*count,swim);
+      const r=o.row,raw=(r.athletes&&r.athletes.length?r.athletes:(o.extra&&o.extra.athletes)||[]);
+      const legs=raw.map((a,i)=>({pos:i+1,aid:String(a.id??a.athleteid),swrid:a.swrid,name:a.fullname||a.nametext||"",t:cs(a.swimtime)}));
+      const mineLegs=legs.filter(mineOf);if(!mineLegs.length)continue;
+      if(ath&&!legs.some(l=>mineOf(l)===ath))continue;
+      const swim=cs(r.swimtime),place=+r.place,sp=parseSp(r.splits,legN*count,swim),T={0:0};for(const[d,t]of sp)T[d]=t;
       const ok=o.group?(o.group.results||[]).filter(y=>+y.place>0&&cs(y.swimtime)!=null).sort((p,q)=>p.place-q.place):[];
-      const legHtml=legs.map((l,i)=>{const who=byId[l.aid],key=who&&who.k,mine=key&&S.athletes[key];
+      const hi=heatOf(st,eid,"",(r.heatinfo&&r.heatinfo.code)||((o.heat||{}).heatinfo||{}).code);
+      const legHtml=legs.map(l=>{const key=mineOf(l),mine=key&&S.athletes[key];
         const st2=stroke==="MEDLEY"?(["BACK","BREAST","FLY","FREE"][l.pos-1]||"FREE"):stroke;
-        const at=sp.find(s=>s[0]===legN*l.pos),bt=l.pos===1?[0,0]:sp.find(s=>s[0]===legN*(l.pos-1));const legT=at&&bt?at[1]-bt[1]:null;
-        const mp=mine&&typeof mppOf==="function"?mppOf(key,legN,st2,course,m.info.start):null;
-        const nm=mine?`${mine.first} ${mine.last}`:(l.name||(who?`${who.a.firstname} ${who.a.lastname}`:"Nageur"));
-        return`<div class="leg"><div class="who"><span><b>${l.pos}.</b> ${mine?`<b>${h(nm)}</b>`:h(nm)} <span class="muted">${legN} ${STROKES[st2]||st2}</span></span>
-          <span class="num">${legT!=null?`<b>${tf(legT)}</b>`:""}${mp?` <span class="muted">MPP ${tf(mp.t)}</span>${legT!=null?" "+gp(legT-mp.t):""}`:""}</span></div>
-          ${mine?noteBox(nidRel(key,e),{...noteMeta(m,e,key,`Relais ${count}×${legN} ${STROKES[stroke]||""}`),d:legN,s:st2,leg:l.pos}):""}</div>`}).join("");
-      html+=`<div class="ccard${o.res?" fin":""}"><h4>Relais ${count}×${legN} ${h(STROKES[stroke]||stroke)}<small>Épr. ${h(x.number)}${x.time?" · "+h(x.time):""}${e.r==="FIN"?" · finale":""}</small></h4>
-        <div class="muted" style="font-size:13px;margin-top:-4px">${h(r.nametext||r.clubname||"Équipe")}${(o.heat||r.heatinfo)?` · série ${h(((o.heat||{}).heatinfo||r.heatinfo||{}).code||"")}`:""}${r.lane?` · couloir ${h(r.lane)}`:""}</div>
-        <dl class="nums"><div><dt>Inscription</dt><dd>${r.entrytime?h(r.entrytime):"—"}</dd></div>
-          ${o.res?`<div class="res"><dt>Réalisé</dt><dd>${swim!=null?tf(swim):`<span class="pill dq">${h(RSTAT[r.status]||"Non classé")}</span>`}</dd></div><div><dt>Place</dt><dd>${+place>0?(place===1?"1er":place+"e"):"—"}${ok.length?` <small style="display:inline">/ ${ok.length}</small>`:""}</dd></div>${place>1&&ok[0]&&swim!=null?`<div><dt>Au 1er</dt><dd>${gp(swim-cs(ok[0].swimtime))}</dd></div>`:""}`:""}</dl>
-        ${legs.length?legHtml:`<p class="muted" style="font-size:13px;margin:0">Composition pas encore publiée dans le direct.</p>`}
-        ${legs.length&&o.res?`<div class="legend">Temps de chaque relayeur tiré des passages ; départ lancé sauf le 1er : comparaison avec la MPP (départ plongé) indicative.</div>`:""}</div>`}}
+        const a0=legN*(l.pos-1),a1=legN*l.pos;const legT=l.t!=null?l.t:(T[a1]!=null&&T[a0]!=null?T[a1]-T[a0]:null);
+        const nm=mine?`${mine.first} ${mine.last}`:(l.name?l.name.split(", ").reverse().join(" "):"Relayeur");
+        let det="";
+        if(mine){const mp=typeof mppOf==="function"?mppOf(key,legN,st2,course,m.info.start):null;
+          const inner=[];for(let d=a0+50;d<=a1;d+=50)if(T[d]!=null&&T[a0]!=null)inner.push(`<span class="num">${d-a0} m ${tf(T[d]-T[a0])}${d>a0+50&&T[d-50]!=null?` <span class="muted">(${tf(T[d]-T[d-50])})</span>`:""}</span>`);
+          det=`<div class="legend" style="color:var(--fg);margin:2px 0 0">${l.pos===1&&legT!=null?'<span class="pill" style="font-size:10px;padding:1px 7px;background:var(--good-soft);color:var(--good)">Temps individuel</span> ':""}${inner.length>1?"Passages : "+inner.join(" · "):""}${mp?`${inner.length>1?"<br>":""}<span class="muted">MPP ${legN} ${STROKES[st2]||st2} : ${tf(mp.t)} (${fmtDate(mp.date)}, départ plongé)</span>`:""}</div>`+
+            noteBox(nidRel(key,e),{...noteMeta(m,e,key,`Relais ${count}×${legN} ${STROKES[stroke]||""}`),d:legN,s:st2,leg:l.pos})}
+        return`<div class="leg"><div class="who"><span><b>${l.pos}.</b> ${mine?`<b>${h(nm)}</b>`:h(nm)} <span class="muted">${legN} ${STROKES[st2]||st2}</span></span><span class="num">${legT!=null?`<b>${tf(legT)}</b>`:""}</span></div>${det}</div>`}).join("");
+      const where=[heatLabel(hi.code||(r.heatinfo&&r.heatinfo.code),hi.total),r.lane?`couloir ${r.lane}`:"",hi.time||""].filter(Boolean).join(" · ");
+      const fr=isFreshKey(st,"R|"+eid+"|"+(r.teamnumber||r.id));
+      html+=`<div class="ccard${o.res?" fin":""}${fr?" fresh":""}"><h4>Relais ${count}×${legN} ${h(STROKES[stroke]||stroke)}${fr?NEW_PILL:""}<small>Épr. ${h(x.number)}${x.time?" · "+h(x.time):""}${e.r==="FIN"?" · finale":""}</small></h4>
+        <div class="muted" style="font-size:13px;margin-top:-4px">Équipe ${h(r.teamnumber||"")}${where?" · "+h(where):""}</div>
+        <dl class="nums"><div><dt>Inscription</dt><dd>${r.entrytime&&r.entrytime!=="NT"?h(r.entrytime):"NT"}</dd></div>
+          ${o.res?`<div class="res"><dt>Réalisé</dt><dd>${swim!=null?tf(swim):`<span class="pill dq">${h(RSTAT[r.status]||"Non classé")}</span>`}</dd></div><div><dt>Place</dt><dd>${place>0?(place===1?"1er":place+"e"):"—"}${ok.length?` <small style="display:inline">/ ${ok.length}</small>`:""}</dd></div>`:""}</dl>
+        ${legHtml}</div>`}}
   return html?`<section class="sess"><h3 class="sh">Relais <span class="muted shm">direct</span></h3><div class="cgrid">${html}</div></section>`:""}
 
 function ago(t){if(!t)return"…";const s=Math.round((Date.now()-t)/1000);return s<60?`il y a ${s} s`:s<3600?`il y a ${Math.round(s/60)} min`:"à "+new Date(t).toLocaleTimeString("fr-CH",{hour:"2-digit",minute:"2-digit"})}
@@ -218,6 +256,7 @@ function bar(m){
     <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:9px;height:9px;border-radius:50%;background:${st&&st.err?"var(--lane)":on?"var(--good)":"var(--muted)"}"></i><b>Direct</b></span>
     <span class="muted" id="liveAgo">${h(liveText(st))}</span>
     <span style="flex:1"></span><button class="btn ghost" data-live-act="now" style="padding:4px 10px">Actualiser</button><button class="btn ghost" data-live-act="edit" style="padding:4px 10px">Changer</button>
+    ${st&&st.main?`<button class="btn ghost" data-live-act="save2" style="padding:4px 10px">${st.savedAt?"Réenregistrer":"Enregistrer"} dans le carnet</button>`:""}
     <a href="https://live.swimrankings.net/${h(id)}/" target="_blank" rel="noopener" class="muted" style="font-size:13px">swimrankings ↗</a></div>`}
 let watched=null,timer=null;
 /* À l'ouverture : données gardées sur l'appareil tout de suite ; chargement réseau seulement si rien n'est gardé
@@ -237,6 +276,33 @@ function rerender(){
   const st=watched&&L.links[watched]&&L.sr[L.links[watched]];
   if(st&&st.changed===false)return;if(st)st.changed=false;
   if(typeof S!=="undefined"&&S.view==="comp"&&!typingNote()&&!document.activeElement?.classList?.contains("rt")&&document.activeElement?.id!=="liveId")renderComp()}
+
+const SR_ST={"1":"EXH","2":"DSQ","3":"DNS","4":"DNF"};
+function collectResults(st){
+  const course=String(st.main.course)==="1"?"LCM":"SCM",per={};
+  const add=(k,res)=>{(per[k]=per[k]||[]).push(res)};
+  for(const k of rosterKeys()){const a=st.byKey[k],f=a&&st.ath[a.id],ca=S.athletes[k];if(!f||!ca)continue;
+    for(const r of f.results||[]){const x=st.events[r.eventid];if(!x||x.isrelay)continue;const d=parseInt(x.distance,10),s=SR_STROKE[String(x.stroke)];if(!d||!s)continue;
+      const t=cs(r.swimtime),stt=+r.place>0?"":(r.status?(t==null?"DNS":(SR_ST[String(r.status)]||"DSQ")):(t==null?"DNS":""));
+      add(k,{d,s,r:srRound(x),c:course,date:x.date,t:stt==="DNS"?null:t,p:stt||t==null?0:(+r.points||aquaPts(ca.gender,course,d,s,t)),st:stt,sp:parseSp(r.splits,d,t).filter(z=>z[0]<d)})}}
+  /* 1er relayeur : temps individuel officiel (départ plongé). */
+  const bySr={};for(const[k,a]of Object.entries(S.athletes||{}))if(a.swrid)bySr[String(a.swrid)]=k;
+  for(const[eid,x]of Object.entries(st.events||{})){if(!isRelayEv(x))continue;
+    const legN=parseInt(String(x.distance).replace(/^.*x\s*/i,""),10)||0,stroke=SR_STROKE[String(x.stroke)]||"FREE",s1=stroke==="MEDLEY"?"BACK":stroke;
+    for(const o of relayRows(st,eid)){const r=o.row,first=(r.athletes||[])[0];if(!o.res||!first)continue;const k=bySr[String(first.swrid||"")];if(!k)continue;
+      const T={0:0};for(const[d,t]of parseSp(r.splits,0,null))T[d]=t;const t=cs(first.swimtime)??T[legN]??null;if(t==null)continue;
+      const sp=[];for(let d=50;d<legN;d+=50)if(T[d]!=null)sp.push([d,T[d]]);
+      add(k,{d:legN,s:s1,r:srRound(x),c:course,date:x.date,t,p:aquaPts(S.athletes[k].gender,course,legN,s1,t),st:"",sp,relay:true})}}
+  return per}
+async function saveToCarnet(m){
+  const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return;
+  const per=collectResults(st),ks=Object.keys(per);const n=ks.reduce((a,k)=>a+per[k].length,0);
+  if(!n){alert("Aucun résultat de tes nageurs à enregistrer pour l'instant.");return}
+  if(!confirm(`Enregistrer ${n} résultat(s) de ${ks.length} nageur(s) dans le carnet ?\nUn import Lenex des résultats de cette compétition remplacera ensuite ces données (sans doublon).`))return;
+  const M=st.main,info={key:M.startdate+"-"+sl(M.city),name:M.name,city:M.city,nation:M.nation||"",course:String(M.course)==="1"?"LCM":"SCM",date:M.startdate};
+  try{for(const k of ks)await S.db.collection("swims").doc(k+"__"+info.key).set({athlete:k,meet:info,results:per[k],source:"live:"+id,saved:new Date().toISOString()});
+    st.savedAt=Date.now();saveSr(st);alert(`${n} résultat(s) enregistré(s). Ils apparaissent dans l'onglet Nageur et servent de MPP pour la suite.`);renderComp()}
+  catch(e){alert("Enregistrement interrompu : "+(e.message||e))}}
 
 /* Création d'une feuille de route à partir du direct (quand aucun Lenex d'engagements n'a été importé). */
 function pickerHtml(){
@@ -283,13 +349,18 @@ document.addEventListener("click",e=>{
   else if(act==="cancel"){L.editing=null;renderComp()}
   else if(act==="unlink"){L.links[m.id]=null;ls.set("cl-links",L.links);L.editing=null;renderComp()}
   else if(act==="save"){const v=(document.getElementById("liveId").value||"").match(/(\d{3,})/);if(!v)return;L.links[m.id]=v[1];ls.set("cl-links",L.links);L.editing=null;watched=null;renderComp()}
+  else if(act==="save2"){saveToCarnet(m)}
   else if(act==="now"){refresh(m,true).then(()=>{const st=L.sr[L.links[m.id]];if(st)st.changed=true;rerender()})}
 });
 document.addEventListener("change",e=>{if(e.target.id==="livePickNat"){L.pickNation=e.target.value;renderComp()}});
 document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="liveId"){e.preventDefault();document.querySelector('[data-live-act="save"]')?.click()}});
 
-{const st=document.createElement("style");st.textContent=".splits.cmp td,.splits.cmp th{padding:3px 4px;font-size:13px}.splits.cmp .pc{text-align:right}";document.head.appendChild(st)}
-window.LIVE={result,nums,extra,finals,bar,pickerHtml,prelim,relayCards};
+{const st=document.createElement("style");st.textContent=".ccard.fresh{border-color:var(--lane);box-shadow:0 0 0 1px var(--lane)}.splits.cmp td,.splits.cmp th{padding:3px 4px;font-size:13px}.splits.cmp .pc{text-align:right}";document.head.appendChild(st)}
+const OPEN=new Set(ls.get("cl-open",[]));
+function detKey(d){const c=d.closest(".ccard");const id=c&&(c.querySelector(".nbox")||{}).dataset;return(id&&id.nid||(c&&c.querySelector("h4")?.textContent)||"")+"|"+(d.dataset.k||d.querySelector("summary")?.textContent||"")}
+document.addEventListener("toggle",e=>{const d=e.target;if(!(d instanceof HTMLDetailsElement)||!d.closest("#viewComp"))return;const k=detKey(d);if(d.open)OPEN.add(k);else OPEN.delete(k);ls.set("cl-open",[...OPEN].slice(-300))},true);
+function restoreOpen(){document.querySelectorAll("#viewComp details").forEach(d=>{const o=OPEN.has(detKey(d));if(d.open!==o)d.open=o})}
+window.LIVE={restoreOpen,isFresh,heatLabel,result,nums,extra,finals,bar,pickerHtml,prelim,relayCards};
 
 /* ================= SYNC ================= */
 function syncBadge(st){
