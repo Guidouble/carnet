@@ -166,7 +166,7 @@ function extra(lv,ref){
     const cell=(t,m)=>t==null?"<td></td><td></td>":`<td class="r">${tf(t)}${m!=null?`<div class="pc">${tf(m)}</div>`:""}</td><td class="r">${m!=null?gp(t-m):""}</td>`;
     const half=T[lv.d/2],mh=M[lv.d/2];
     out+=`<details class="spl" data-k="sp"><summary>Temps de passage${ref?" · comparaison MPP":""}</summary><table class="splits cmp"><thead><tr><th class="muted" style="font-weight:500">Dist.</th>${has100?'<th class="r muted" style="font-weight:500">100 m</th><th></th>':""}<th class="r muted" style="font-weight:500">${lapLbl}</th><th></th></tr></thead><tbody>${rows.map((x,i)=>`<tr><td class="muted">${x.d}<div class="pc" style="text-align:left">${tf(x.cum)}</div></td>${has100?cell(x.h,x.mh):""}${cell(x.lap,x.mlap).replace('<td class="r">',i>0&&p[i]>med*1.03?'<td class="r" style="color:var(--lane);font-weight:600">':'<td class="r">')}</tr>`).join("")}</tbody></table>
-      ${half!=null&&lv.d>=100?`<div class="legend" style="color:var(--fg)">1re moitié ${tf(half)} · 2e moitié ${tf(lv.swim-half)} · différentiel ${gp(lv.swim-2*half)} (${pct(lv.swim-2*half,half)})${mh!=null&&ref?`<br><span class="muted">MPP : ${tf(mh)} / ${tf(ref.t-mh)} · différentiel ${gp(ref.t-2*mh)} (${pct(ref.t-2*mh,mh)})</span>`:""}</div>`:""}
+      ${half!=null&&lv.d>=100?`<div class="lg2">1re moitié ${tf(half)} · 2e moitié ${tf(lv.swim-half)} · différentiel ${gp(lv.swim-2*half)} (${pct(lv.swim-2*half,half)})${mh!=null&&ref?`<br><span class="muted">MPP : ${tf(mh)} / ${tf(ref.t-mh)} · différentiel ${gp(ref.t-2*mh)} (${pct(ref.t-2*mh,mh)})</span>`:""}</div>`:""}
       <div class="legend">Chaque segment est comparé au même segment de la MPP (en petit dessous) ; sous la distance, le temps de passage. 50 m en orange : plus de 3 % plus lent que la médiane (départ exclu).</div></details>`}
   if(lv.ranking&&lv.ranking.length){const rows=lv.ranking.slice().sort((a,b)=>(+a.place>0?+a.place:999)-(+b.place>0?+b.place:999));
     out+=`<details class="spl" data-k="rk"><summary>Classement${lv.ag?" "+h(lv.ag):""}</summary><table class="splits"><tbody>${rows.map(x=>`<tr${String(x.athleteid)===lv.me?' style="font-weight:600;background:var(--accent-soft)"':""}><td>${+x.place>0?x.place:"—"}</td><td>${h(x.nametext||"")}<div class="muted" style="font-size:12px">${h(x.clubname||x.clubcode||"")}${x.agetext?" · "+h(x.agetext):""}</div></td><td class="r">${x.swimtime?h(x.swimtime):h(RSTAT[x.status]||"—")}</td></tr>`).join("")}</tbody></table></details>`}
@@ -224,7 +224,7 @@ function relayCards(m,day,ath){
         let det="";
         if(mine){const mp=typeof mppOf==="function"?mppOf(key,legN,st2,course,m.info.start):null;
           const inner=[];for(let d=a0+50;d<=a1;d+=50)if(T[d]!=null&&T[a0]!=null)inner.push(`<span class="num">${d-a0} m ${tf(T[d]-T[a0])}${d>a0+50&&T[d-50]!=null?` <span class="muted">(${tf(T[d]-T[d-50])})</span>`:""}</span>`);
-          det=`<div class="legend" style="color:var(--fg);margin:2px 0 0">${l.pos===1&&legT!=null?'<span class="pill" style="font-size:10px;padding:1px 7px;background:var(--good-soft);color:var(--good)">Temps individuel</span> ':""}${inner.length>1?"Passages : "+inner.join(" · "):""}${mp?`${inner.length>1?"<br>":""}<span class="muted">MPP ${legN} ${STROKES[st2]||st2} : ${tf(mp.t)} (${fmtDate(mp.date)}, départ plongé)</span>`:""}</div>`+
+          det=`<div class="lg2">${l.pos===1&&legT!=null?'<span class="pill" style="font-size:10px;padding:1px 7px;background:var(--good-soft);color:var(--good)">Temps individuel</span> ':""}${inner.length>1?"Passages : "+inner.join(" · "):""}${mp?`${inner.length>1?"<br>":""}<span class="muted">MPP ${legN} ${STROKES[st2]||st2} : ${tf(mp.t)} (${fmtDate(mp.date)}, départ plongé)</span>`:""}</div>`+
             noteBox(nidRel(key,e),{...noteMeta(m,e,key,`Relais ${count}×${legN} ${STROKES[stroke]||""}`),d:legN,s:st2,leg:l.pos})}
         return`<div class="leg"><div class="who"><span><b>${l.pos}.</b> ${mine?`<b>${h(nm)}</b>`:h(nm)} <span class="muted">${legN} ${STROKES[st2]||st2}</span></span><span class="num">${legT!=null?`<b>${tf(legT)}</b>`:""}</span></div>${det}</div>`}).join("");
       const where=[heatLabel(hi.code||(r.heatinfo&&r.heatinfo.code),hi.total),r.lane?`couloir ${r.lane}`:"",hi.time||""].filter(Boolean).join(" · ");
@@ -304,6 +304,25 @@ async function saveToCarnet(m){
     st.savedAt=Date.now();saveSr(st);alert(`${n} résultat(s) enregistré(s). Ils apparaissent dans l'onglet Nageur et servent de MPP pour la suite.`);renderComp()}
   catch(e){alert("Enregistrement interrompu : "+(e.message||e))}}
 
+/* Prochaines compétitions : une fois par jour, cherche sur live.swimrankings.net (Suisse, 3 semaines)
+   celles où tes nageurs sont inscrits et crée la feuille de route. Les feuilles créées ainsi se complètent seules. */
+async function autoScan(force){
+  const day=todayIso(),mem=ls.get("cl-scan",{});if(!force&&mem.day===day)return;
+  if(typeof S==="undefined"||!S.db||!Object.keys(S.athletes||{}).length)return;
+  ls.set("cl-scan",{day});
+  try{const groups=await meetList();const g=groups.find(x=>x.code==="SUI");if(!g)return;
+    const lim=new Date(Date.now()+21*864e5).toISOString().slice(0,10);
+    const cand=(g.meets||[]).filter(x=>x.status!==5&&x.enddate>=day&&x.startdate<=lim);
+    const roster=rosterKeys();let made=0;
+    for(const x of cand){const key=x.startdate+"-"+sl(x.city),ex=C.meets.find(m=>m.id===key);
+      if(ex&&!(ex.source&&String(ex.source).startsWith("live:")))continue;
+      let ath;try{ath=arr(await getJ(`/meets/${x.id}/athletes.json`))}catch(e){continue}
+      if(!ath.some(a=>roster.has(sl(a.lastname)+"-"+sl(a.firstname))))continue;
+      delete L.sr[x.id];if(await createFromLive(String(x.id),{silent:true,update:true}))made++}
+    if(made&&S.view==="comp")renderComp()}catch(e){}}
+setTimeout(()=>autoScan(),9000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)setTimeout(()=>autoScan(),3000)});
+
 /* Création d'une feuille de route à partir du direct (quand aucun Lenex d'engagements n'a été importé). */
 function pickerHtml(){
   if(!L.picker)return`<div style="margin-top:14px"><button class="btn" data-live-act="picker">Créer depuis les résultats en direct</button></div>`;
@@ -312,7 +331,7 @@ function pickerHtml(){
   return`<div style="margin-top:14px;text-align:left"><div class="ctl"><label class="l" for="livePickNat">Pays</label><select id="livePickNat" class="tsel">${L.meetList.map(x=>`<option value="${h(x.code)}"${g&&x.code===g.code?" selected":""}>${h(x.name)}</option>`).join("")}</select><button class="btn ghost" data-live-act="pickclose">Fermer</button></div>
     ${ms.length?`<div class="card">${ms.map(x=>`<button class="sw" style="padding:10px 12px;border-bottom:1px solid var(--line);border-radius:0" data-live-create="${h(x.id)}"><span><b>${h(x.name)}</b><br><span class="muted">${h(x.city)} · ${h(x.startdate)}${x.enddate!==x.startdate?" – "+h(x.enddate):""}</span></span><span class="pts">créer ›</span></button>`).join("")}</div>`:`<p class="muted">Aucune compétition à venir dans ce pays.</p>`}
     <p class="legend">Seuls tes nageurs (ceux de la liste du carnet) sont repris, avec leurs épreuves individuelles. Les relais de ton club s\u2019affichent tout seuls depuis le direct.</p><div id="liveMsg" class="msg"></div></div>`}
-async function createFromLive(id){
+async function createFromLive(id,opt){opt=opt||{};
   const msg=t=>{const el=document.getElementById("liveMsg");if(el)el.textContent=t};
   msg("Lecture du direct…");
   try{
@@ -333,9 +352,11 @@ async function createFromLive(id){
     const evs=Object.values(events);
     const sessions=dates.filter(d=>evs.some(e=>e.date===d)).map(d=>({n:sessN(d),date:d,warm:"",time:evs.filter(e=>e.date===d).map(e=>e.time).filter(Boolean).sort()[0]||"",c:course}));
     const info={key:st.main.startdate+"-"+sl(st.main.city),name:st.main.name,city:st.main.city,course,start:st.main.startdate,end:st.main.enddate||st.main.startdate};
-    if(C.meets.some(x=>x.id===info.key)&&!confirm("Une feuille de route existe déjà pour cette compétition. La remplacer ? Les notes sont conservées."))return msg("");
+    const ex=C.meets.find(x=>x.id===info.key);
+    if(opt.silent){if(ex&&!opt.update)return;if(ex&&ex.source&&!String(ex.source).startsWith("live:"))return}
+    else if(ex&&!confirm("Une feuille de route existe déjà pour cette compétition. La remplacer ? Les notes sont conservées."))return msg("");
     await S.db.collection("meets").doc(info.key).set({info,sessions,events:evs,entries,imported:new Date().toISOString(),source:"live:"+id});
-    L.links[info.key]=String(id);ls.set("cl-links",L.links);L.picker=false;C.pick=info.key;C.day=null;renderComp();
+    L.links[info.key]=String(id);ls.set("cl-links",L.links);if(opt.silent)return true;L.picker=false;C.pick=info.key;C.day=null;renderComp();
   }catch(e){msg("Création impossible ("+e.message+").")}}
 
 document.addEventListener("click",e=>{
@@ -355,12 +376,19 @@ document.addEventListener("click",e=>{
 document.addEventListener("change",e=>{if(e.target.id==="livePickNat"){L.pickNation=e.target.value;renderComp()}});
 document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="liveId"){e.preventDefault();document.querySelector('[data-live-act="save"]')?.click()}});
 
-{const st=document.createElement("style");st.textContent=".ccard.fresh{border-color:var(--lane);box-shadow:0 0 0 1px var(--lane)}.splits.cmp td,.splits.cmp th{padding:3px 4px;font-size:13px}.splits.cmp .pc{text-align:right}";document.head.appendChild(st)}
+{const st=document.createElement("style");st.textContent=".legend{display:none!important}.lg2{font-size:13px;margin-top:6px;line-height:1.4}.splq{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}.ccard.fresh{border-color:var(--lane);box-shadow:0 0 0 1px var(--lane)}.splits.cmp td,.splits.cmp th{padding:3px 4px;font-size:13px}.splits.cmp .pc{text-align:right}";document.head.appendChild(st)}
 const OPEN=new Set(ls.get("cl-open",[]));
 function detKey(d){const c=d.closest(".ccard");const id=c&&(c.querySelector(".nbox")||{}).dataset;return(id&&id.nid||(c&&c.querySelector("h4")?.textContent)||"")+"|"+(d.dataset.k||d.querySelector("summary")?.textContent||"")}
 document.addEventListener("toggle",e=>{const d=e.target;if(!(d instanceof HTMLDetailsElement)||!d.closest("#viewComp"))return;const k=detKey(d);if(d.open)OPEN.add(k);else OPEN.delete(k);ls.set("cl-open",[...OPEN].slice(-300))},true);
 function restoreOpen(){document.querySelectorAll("#viewComp details").forEach(d=>{const o=OPEN.has(detKey(d));if(d.open!==o)d.open=o})}
-window.LIVE={restoreOpen,isFresh,heatLabel,result,nums,extra,finals,bar,pickerHtml,prelim,relayCards};
+function spLine(r){if(!r||r.t==null||r.st)return"";const pts=[...(r.sp||[]).filter(x=>x[0]<r.d),[r.d,r.t]];if(pts.length<2)return"";let pt=0;
+  return`<div class="splq">${pts.map(([d,t])=>{const l=t-pt;pt=t;return`${tf(l)}`}).join(" · ")}</div>`}
+/* Comparaison des passages : direct si disponible, sinon résultat enregistré dans le carnet. */
+function extraAny(lv,res,e,ref,sp){
+  if(lv&&lv.kind==="res"&&lv.swim!=null)return extra(lv,ref);
+  if(res&&res.t!=null&&!res.st&&(res.sp||[]).length)return extra({kind:"res",swim:res.t,d:e.d,sp:[...res.sp.filter(x=>x[0]<e.d),[e.d,res.t]],ranking:null},ref);
+  return sp}
+window.LIVE={autoScan,restoreOpen,spLine,extraAny,isFresh,heatLabel,result,nums,extra,finals,bar,pickerHtml,prelim,relayCards};
 
 /* ================= SYNC ================= */
 function syncBadge(st){
