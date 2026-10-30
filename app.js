@@ -30,19 +30,32 @@ async function autoLink(m){
   try{const groups=await meetList();const all=groups.flatMap(g=>g.meets||[]);
     const c=sl(m.info.city);const hit=all.find(x=>x.startdate===m.info.start&&sl(x.city)===c)||all.find(x=>x.startdate===m.info.start&&(sl(x.city).includes(c)||c.includes(sl(x.city))));
     L.links[m.id]=hit?String(hit.id):null;ls.set("cl-links",L.links);return L.links[m.id]}catch(e){return null}}
-async function loadSr(id){
-  if(L.sr[id]&&L.sr[id].main)return L.sr[id];
-  const st=L.sr[id]||(L.sr[id]={id,ath:{},res:{},heats:{},stamp:null,lastOk:0,err:null});
+/* --- données du direct, gardées sur l'appareil : sans réseau, la dernière version chargée reste affichée --- */
+function rosterKeys(){return new Set(typeof S!=="undefined"?Object.keys(S.athletes||{}):[])}
+function saveSr(st){
+  const keep=rosterKeys(),byKey={};for(const[k,a]of Object.entries(st.byKey||{}))if(keep.has(k)||(st.club&&String(a.clubid)===st.club))byKey[k]=a;
+  const base={id:st.id,main:st.main,events:st.events,agegroups:st.agegroups,byKey,club:st.club,ath:st.ath,heats:st.heats,stamp:st.stamp,lastOk:st.lastOk,clubFile:st.clubFile};
+  try{localStorage.setItem("cl-sr-"+st.id,JSON.stringify({...base,res:st.res}))}
+  catch(e){try{localStorage.setItem("cl-sr-"+st.id,JSON.stringify({...base,res:{}}))}catch(e2){}}}
+function restoreSr(id){const c=ls.get("cl-sr-"+id,null);if(!c||!c.main)return null;return{...c,ath:c.ath||{},res:c.res||{},heats:c.heats||{},byKey:c.byKey||{},cached:true}}
+function stOf(id){return L.sr[id]||(L.sr[id]=restoreSr(id)||{id,ath:{},res:{},heats:{},byKey:{},stamp:null,lastOk:0})}
+async function loadSr(id,full){
+  const st=stOf(id);
+  if(st.full&&!full)return st;
   const [main,events,agegroups,athletes]=await Promise.all(["main","events","agegroups","athletes"].map(f=>getJ(`/meets/${id}/${f}.json`)));
-  Object.assign(st,{main,events,agegroups,athletes:arr(athletes)});
-  st.byKey={};for(const a of st.athletes)st.byKey[sl(a.lastname)+"-"+sl(a.firstname)]=a;
+  Object.assign(st,{main,events,agegroups,full:true});
+  st.byKey={};for(const a of arr(athletes))st.byKey[sl(a.lastname)+"-"+sl(a.firstname)]=a;
+  const cnt={};for(const k of rosterKeys()){const a=st.byKey[k];if(a)cnt[a.clubid]=(cnt[a.clubid]||0)+1}
+  st.club=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
   return st}
-function carnetKeys(m){const s=new Set();for(const x of m.entries||[]){if(x.relay)(x.legs||[]).forEach(l=>l.a&&s.add(l.a));else s.add(x.a)}return s}
+function carnetKeys(m){const s=new Set(rosterKeys());for(const x of m.entries||[]){if(x.relay)(x.legs||[]).forEach(l=>l.a&&s.add(l.a));else s.add(x.a)}return s}
+const isRelayEv=x=>x&&typeof x==="object"&&x.isrelay;
 async function refresh(m,force){
   const id=L.links[m.id];if(!id||L.busy)return;L.busy=true;
-  const st=L.sr[id]||(L.sr[id]={id,ath:{},res:{},heats:{}});
+  const st=stOf(id);
   try{
-    await loadSr(id);
+    await loadSr(id,!st.full);
+    st.main=await getJ(`/meets/${id}/main.json`).catch(()=>st.main);
     const lh=await getJ(`/meets/${id}/lastHeat.json`).catch(()=>null);
     const stamp=lh&&lh.lastupdate||st.main.lastupdate;
     if(force||stamp!==st.stamp){
@@ -50,19 +63,33 @@ async function refresh(m,force){
       const files=await pool(list,6,a=>getJ(`/meets/${id}/athletes/${a.id}.json`));list.forEach((a,i)=>{if(files[i])st.ath[a.id]=files[i]});
       const evR=new Set(),evE=new Set();
       for(const a of list){const f=st.ath[a.id];if(!f)continue;(f.results||[]).forEach(r=>evR.add(String(r.eventid)));(f.entries||[]).forEach(e=>evE.add(String(e.eventid)))}
+      /* relais : classements et séries de toutes les épreuves de relais jusqu'à aujourd'hui (la composition y figure) */
+      const td=todayIso();
+      for(const[k,x]of Object.entries(st.events||{}))if(isRelayEv(x)&&x.date<=td){evR.add(k);evE.add(k)}
       const nR=[...evR].filter(e=>!st.res[e]||st.res[e].status!==5),rr=await pool(nR,6,e=>getJ(`/meets/${id}/results/${e}.json`));nR.forEach((e,i)=>{if(rr[i])st.res[e]=rr[i]});
       const nH=[...evE].filter(e=>!st.heats[e]||st.heats[e].status!==5),hh=await pool(nH,6,e=>getJ(`/meets/${id}/heats/${e}.json`));nH.forEach((e,i)=>{if(hh[i])st.heats[e]=hh[i]});
+      if(st.club)st.clubFile=await getJ(`/meets/${id}/clubs/${st.club}.json`).catch(()=>st.clubFile);
       st.stamp=stamp;st.changed=true;
     }
-    st.lastOk=Date.now();st.err=null;
-  }catch(e){st.err="Direct injoignable ("+e.message+")"}
+    st.lastOk=Date.now();st.err=null;saveSr(st);
+  }catch(e){st.err="hors ligne";st.changed=true}
   L.busy=false;
 }
+function todayIso(){const t=new Date();return`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`}
+/* Actualisation automatique seulement pendant la compétition : jour de compétition,
+   d'une heure avant la première épreuve du jour à deux heures après la dernière. Sinon : bouton Actualiser. */
+function inWindow(st){
+  if(!st||!st.main||+st.main.status===5)return false;
+  const td=todayIso(),evs=Object.values(st.events||{}).filter(x=>x&&typeof x==="object"&&x.date===td);if(!evs.length)return false;
+  const ts=evs.map(x=>x.time).filter(t=>/^\d{1,2}:\d\d$/.test(t||"")).map(t=>{const[a,b]=t.split(":");return+a*60+ +b});
+  const n=new Date(),mn=n.getHours()*60+n.getMinutes();
+  return ts.length?mn>=Math.min(...ts)-60&&mn<=Math.max(...ts)+120:mn>=420&&mn<=1320}
 function srEventFor(st,e){
   const direct=st.events[e.id];
   const ok=x=>x&&parseInt(x.distance,10)===e.d&&SR_STROKE[String(x.stroke)]===e.s&&!x.isrelay;
   if(ok(direct)&&(srRound(direct)==="FIN")===(e.r==="FIN"))return direct;
   return Object.values(st.events).find(x=>x&&typeof x==="object"&&ok(x)&&x.date===e.date&&(srRound(x)==="FIN")===(e.r==="FIN"))||null}
+const parseSp=(sp,d,swim)=>{const a=Object.entries(sp||{}).map(([k,v])=>[parseInt(k,10),cs(v)]).filter(x=>x[0]>0&&x[1]!=null).sort((x,y)=>x[0]-y[0]);if(swim!=null&&d&&(!a.length||a[a.length-1][0]<d))a.push([d,swim]);return a};
 /* Résultat direct d'un nageur du carnet (clé a) sur une épreuve du carnet. */
 function result(m,e,a){
   const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return null;
@@ -74,15 +101,21 @@ function result(m,e,a){
     if(g){ranking=g.results||[];const ok=ranking.filter(x=>+x.place>0&&cs(x.swimtime)!=null).sort((x,y)=>x.place-y.place);field=ok.length;winner=ok[0]?cs(ok[0].swimtime):null;second=ok[1]?cs(ok[1].swimtime):null}
     const agd=st.agegroups&&st.agegroups[r.agegroupid];ag=agd&&agd.name?agd.name.trim():"";
     if(place===1&&winner==null)winner=swim;
-    const sp=Object.entries(r.splits||{}).map(([k,v])=>[parseInt(k,10),cs(v)]).filter(x=>x[0]>0&&x[1]!=null).sort((x,y)=>x[0]-y[0]);
-    if(swim!=null&&(!sp.length||sp[sp.length-1][0]<e.d))sp.push([e.d,swim]);
     return{kind:"res",swim,place,field,winner,second,ranking,ag,status:r.status?String(r.status):"",pb:r.pbest?cs(r.pbest.swimtime):null,flag:r.flag&&r.flag.text||"",
-      points:+r.points||null,rt:r.reactiontime||"",heat:r.heatinfo&&r.heatinfo.code,lane:r.lane,time:r.heatinfo&&r.heatinfo.time,sp,me:String(sa.id),d:e.d}}
+      points:+r.points||null,rt:r.reactiontime||"",heat:r.heatinfo&&r.heatinfo.code,lane:r.lane,time:r.heatinfo&&r.heatinfo.time,sp:parseSp(r.splits,e.d,swim),me:String(sa.id),d:e.d}}
   const H=st.heats[String(se.id)];
   if(H)for(const ht of H.heats||[])for(const x of ht.entries||[])if(String(x.athleteid)===String(sa.id))return{kind:"entry",heat:(ht.heatinfo&&ht.heatinfo.code)||ht.code,lane:x.lane,time:(ht.heatinfo&&ht.heatinfo.time)||ht.time};
   return null}
+/* Temps des séries pour une carte de finale : remplace le temps d'inscription. */
+function prelim(m,e,a){
+  const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return null;
+  const sa=st.byKey[a];const f=sa&&st.ath[sa.id];if(!f)return null;
+  const c=(f.results||[]).map(r=>({r,x:st.events[r.eventid]})).filter(({x})=>x&&!x.isrelay&&srRound(x)!=="FIN"&&parseInt(x.distance,10)===e.d&&SR_STROKE[String(x.stroke)]===e.s&&x.date<=e.date)
+    .sort((p,q)=>(q.x.date===e.date)-(p.x.date===e.date)||q.x.date.localeCompare(p.x.date))[0];
+  return c?{swim:cs(c.r.swimtime),place:+c.r.place}:null}
+const pct=(d,base)=>base?`${d>0?"+":d<0?"−":"±"}${Math.abs(100*d/base).toFixed(1)} %`:"";
 /* Cases à ajouter dans la carte de course (même présentation que le carnet). */
-function nums(lv,ref,et){
+function nums(lv,ref,et,isFinal){
   if(!lv||lv.kind!=="res")return"";
   const unr=!(lv.place>0);
   if(lv.swim==null)return`<div class="res"><dt>Direct</dt><dd><span class="pill dq">${h(RSTAT[lv.status]||"Non classé")}</span></dd></div>`;
@@ -90,30 +123,89 @@ function nums(lv,ref,et){
   return`<div class="res"><dt>Réalisé <span class="pill" style="font-size:10px;padding:0 6px">direct</span></dt><dd>${tf(lv.swim)}${ref?`<small>${gp(lv.swim-ref.t)} vs MPP</small>`:lv.pb!=null?`<small>${gp(lv.swim-lv.pb)} vs record</small>`:""}</dd></div>
     <div><dt>Place${lv.ag?" "+h(lv.ag):""}</dt><dd>${unr?`<span class="pill dq">${h(RSTAT[lv.status]||"Non classé")}</span>`:`${lv.place===1?"1er":lv.place+"e"}${lv.field?` <small style="display:inline">/ ${lv.field}</small>`:""}`}${lv.flag==="PB"?'<small style="color:var(--good)">record perso</small>':""}</dd></div>
     <div><dt>${lv.place===1?"Avance 2e":"Au 1er"}</dt><dd>${gp(toWin)}</dd></div>
-    ${et?`<div><dt>vs inscription</dt><dd>${gp(lv.swim-et)}</dd></div>`:""}`}
-function extra(lv){
+    ${et?`<div><dt>${isFinal?"vs séries":"vs inscription"}</dt><dd>${gp(lv.swim-et)}</dd></div>`:""}`}
+/* Temps de passage du direct comparés à ceux de la MPP (carnet), puis classement. */
+function extra(lv,ref){
   if(!lv||lv.kind!=="res"||lv.swim==null)return"";
   let out="";
-  if(lv.sp.length>1){let pd=0,pt=0;const rows=lv.sp.map(([d,t])=>{const lap=t-pt,len=d-pd;pd=d;pt=t;return{d,t,lap,len,p50:lap*50/len}});
-    const p=rows.map(x=>x.p50),body=p.slice(1),mn=Math.min(...p),mx=Math.max(...p),srt=(body.length?body:p).slice().sort((a,b)=>a-b),med=srt[Math.floor(srt.length/2)];
-    const half=rows.find(x=>x.d===lv.d/2);
-    out+=`<details class="spl"><summary>Répartition de course</summary><table class="splits"><tbody>${rows.map((x,i)=>`<tr><td class="muted">${x.d} m</td><td class="r">${tf(x.t)}</td><td class="r muted">${tf(x.lap)}</td><td style="width:40%"><span class="pace${i>0&&x.p50>med*1.03?" slow":""}" style="width:${mx===mn?100:Math.round(35+65*(x.p50-mn)/(mx-mn))}%"></span></td></tr>`).join("")}</tbody></table>
-      ${half&&lv.d>=100?`<div class="legend" style="color:var(--fg)">1re moitié ${tf(half.t)} · 2e moitié ${tf(lv.swim-half.t)} · différentiel ${gp(lv.swim-2*half.t)}</div>`:""}
-      ${body.length>=2?`<div class="legend" style="color:var(--fg)">Écart entre partiels hors départ : ${tf(Math.round(Math.max(...body)-Math.min(...body)))} /50</div>`:""}
-      <div class="legend">Barre plus longue = segment plus lent (ramené au 50 m). Orange : plus de 3 % au-dessus de la médiane (départ exclu).</div></details>`}
+  if(lv.sp.length>1){
+    const mpp={};if(ref){for(const[d,t]of ref.sp||[])mpp[d]=t;mpp[lv.d]=ref.t}
+    let pd=0,pt=0;const rows=lv.sp.map(([d,t])=>{const lap=t-pt,len=d-pd,md=mpp[d],mp=pd===0?(md??null):(md!=null&&mpp[pd]!=null?md-mpp[pd]:null);pd=d;pt=t;return{d,t,lap,len,p50:lap*50/len,md,mp}});
+    const p=rows.map(x=>x.p50),body=p.slice(1),srt=(body.length?body:p).slice().sort((a,b)=>a-b),med=srt[Math.floor(srt.length/2)];
+    const hasM=rows.some(x=>x.md!=null);
+    const half=rows.find(x=>x.d===lv.d/2),mh=mpp[lv.d/2];
+    out+=`<details class="spl" open><summary>Temps de passage${hasM?" · comparaison MPP":""}</summary><table class="splits cmp"><thead><tr><th class="muted" style="font-weight:500">Dist.</th><th class="r muted" style="font-weight:500">Passage</th>${hasM?'<th class="r muted" style="font-weight:500">vs MPP</th>':""}<th class="r muted" style="font-weight:500">Partiel</th>${hasM?'<th class="r muted" style="font-weight:500">vs MPP</th>':""}</tr></thead><tbody>${rows.map((x,i)=>`<tr><td class="muted">${x.d}</td>
+      <td class="r">${tf(x.t)}${x.md!=null?`<div class="pc">${tf(x.md)}</div>`:""}</td>${hasM?`<td class="r">${x.md!=null?gp(x.t-x.md):""}</td>`:""}
+      <td class="r"${i>0&&x.p50>med*1.03?' style="color:var(--lane);font-weight:600"':""}>${tf(x.lap)}${x.mp!=null?`<div class="pc">${tf(x.mp)}</div>`:""}</td>${hasM?`<td class="r">${x.mp!=null?gp(x.lap-x.mp):""}</td>`:""}</tr>`).join("")}</tbody></table>
+      ${half&&lv.d>=100?`<div class="legend" style="color:var(--fg)">1re moitié ${tf(half.t)} · 2e moitié ${tf(lv.swim-half.t)} · différentiel ${gp(lv.swim-2*half.t)} (${pct(lv.swim-2*half.t,half.t)})${mh!=null&&ref?`<br><span class="muted">MPP : ${tf(mh)} / ${tf(ref.t-mh)} · différentiel ${gp(ref.t-2*mh)} (${pct(ref.t-2*mh,mh)})</span>`:""}</div>`:""}
+      <div class="legend">Sous chaque temps, en petit : la MPP au même passage. Partiel en orange : plus de 3 % plus lent que la médiane des partiels (départ exclu). Différentiel en % : 2e moitié − 1re moitié, rapporté à la 1re moitié.</div></details>`}
   if(lv.ranking&&lv.ranking.length){const rows=lv.ranking.slice().sort((a,b)=>(+a.place>0?+a.place:999)-(+b.place>0?+b.place:999));
     out+=`<details class="spl"><summary>Classement${lv.ag?" "+h(lv.ag):""}</summary><table class="splits"><tbody>${rows.map(x=>`<tr${String(x.athleteid)===lv.me?' style="font-weight:600;background:var(--accent-soft)"':""}><td>${+x.place>0?x.place:"—"}</td><td>${h(x.nametext||"")}<div class="muted" style="font-size:12px">${h(x.clubname||x.clubcode||"")}${x.agetext?" · "+h(x.agetext):""}</div></td><td class="r">${x.swimtime?h(x.swimtime):h(RSTAT[x.status]||"—")}</td></tr>`).join("")}</tbody></table></details>`}
   return out}
-/* Finales détectées en direct (le carnet n'a pas besoin du bouton « Finale »). */
+/* Finales récupérées automatiquement depuis le direct. */
 function finals(m,evs,ents){
   const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return[];const out=[];
   for(const en of ents){if(en.relay)continue;const e=evs[en.ev];if(!e||e.r==="FIN")continue;
     const sa=st.byKey[en.a];if(!sa||!st.ath[sa.id])continue;
     const f=st.ath[sa.id];const ids=new Set([...(f.results||[]).map(r=>String(r.eventid)),...(f.entries||[]).map(r=>String(r.eventid))]);
     for(const sid of ids){const x=st.events[sid];if(!x||srRound(x)!=="FIN"||x.isrelay)continue;
-      if(parseInt(x.distance,10)===e.d&&SR_STROKE[String(x.stroke)]===e.s)out.push({x:en,e:{...e,r:"FIN",date:x.date,sess:999,time:x.time||"",id:String(x.id)},src:null,live:true})}}
+      if(parseInt(x.distance,10)===e.d&&SR_STROKE[String(x.stroke)]===e.s)out.push({x:en,e:{...e,r:"FIN",date:x.date,sess:999,time:x.time||"",id:String(x.id),n:+x.number||e.n},src:null,live:true})}}
   return out}
-function ago(t){if(!t)return"…";const s=Math.round((Date.now()-t)/1000);return s<60?`il y a ${s} s`:`il y a ${Math.round(s/60)} min`}
+
+/* ---------- relais (direct) ----------
+   Le format exact des relais sur live.swimrankings.net n'a pas pu être vérifié : la composition est cherchée
+   dans toute liste de nageurs contenue dans la ligne du relais (classement, séries, fichier du club). */
+function legsOf(row){
+  if(!row||typeof row!=="object")return[];
+  for(const v of Object.values(row)){if(!Array.isArray(v)||!v.length||typeof v[0]!=="object")continue;
+    if(!v.some(o=>o&&(o.athleteid!=null||(o.id!=null&&(o.lastname||o.nametext||o.fullname)))))continue;
+    return v.map((o,i)=>({aid:String(o.athleteid??o.id),pos:+(o.number??o.position??o.leg??o.order??o.relayposition??(i+1))||i+1,name:o.nametext||o.fullname||[o.lastname,o.firstname].filter(Boolean).join(", "),rt:o.reactiontime||""})).sort((a,b)=>a.pos-b.pos)}
+  return[]}
+function relayRows(st,eid){
+  const out=[],seen=new Set(),club=st.club;const isMine=r=>club&&String(r.clubid)===club;
+  const R=st.res[eid];if(R)for(const g of R.agegroups||[])for(const r of g.results||[])if(isMine(r)){const k=r.id||r.teamnumber||r.nametext;if(seen.has(k))continue;seen.add(k);out.push({row:r,res:true,group:g})}
+  if(!out.length){const H=st.heats[eid];if(H)for(const ht of H.heats||[])for(const r of ht.entries||[])if(isMine(r)){const k=r.id||r.teamnumber||r.nametext;if(seen.has(k))continue;seen.add(k);out.push({row:r,res:false,heat:ht})}}
+  const cf=st.clubFile;
+  for(const o of out)if(!legsOf(o.row).length&&cf){const pool=[...(cf.results||[]),...(cf.entries||[])].filter(x=>String(x.eventid)===String(eid));
+    const hit=pool.find(x=>(x.teamnumber!=null&&String(x.teamnumber)===String(o.row.teamnumber))||(x.id!=null&&String(x.id)===String(o.row.id)))||(pool.length===1?pool[0]:null);if(hit)o.extra=hit}
+  return out}
+function relayCards(m,day,ath){
+  const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main||!st.club)return"";
+  const course=String(st.main.course)==="1"?"LCM":"SCM";const byId={};for(const[k,a]of Object.entries(st.byKey||{}))byId[String(a.id)]={k,a};
+  const evs=Object.entries(st.events||{}).filter(([,x])=>isRelayEv(x)&&(!day||x.date===day)).sort((p,q)=>(p[1].date+p[1].time).localeCompare(q[1].date+q[1].time)||(+p[1].number)-(+q[1].number));
+  let html="";
+  for(const[eid,x]of evs){
+    const legN=parseInt(String(x.distance).replace(/^.*x\s*/i,""),10)||0,count=parseInt(x.distance,10)||4,stroke=SR_STROKE[String(x.stroke)]||"FREE";
+    const e={id:eid,n:+x.number||0,d:legN,s:stroke,rc:count,relay:true,r:srRound(x),date:x.date,c:course};
+    for(const o of relayRows(st,eid)){
+      const r=o.row,legs=legsOf(r).length?legsOf(r):legsOf(o.extra);
+      if(ath&&!legs.some(l=>byId[l.aid]&&byId[l.aid].k===ath))continue;
+      const swim=cs(r.swimtime),place=+r.place,sp=parseSp(r.splits,legN*count,swim);
+      const ok=o.group?(o.group.results||[]).filter(y=>+y.place>0&&cs(y.swimtime)!=null).sort((p,q)=>p.place-q.place):[];
+      const legHtml=legs.map((l,i)=>{const who=byId[l.aid],key=who&&who.k,mine=key&&S.athletes[key];
+        const st2=stroke==="MEDLEY"?(["BACK","BREAST","FLY","FREE"][l.pos-1]||"FREE"):stroke;
+        const at=sp.find(s=>s[0]===legN*l.pos),bt=l.pos===1?[0,0]:sp.find(s=>s[0]===legN*(l.pos-1));const legT=at&&bt?at[1]-bt[1]:null;
+        const mp=mine&&typeof mppOf==="function"?mppOf(key,legN,st2,course,m.info.start):null;
+        const nm=mine?`${mine.first} ${mine.last}`:(l.name||(who?`${who.a.firstname} ${who.a.lastname}`:"Nageur"));
+        return`<div class="leg"><div class="who"><span><b>${l.pos}.</b> ${mine?`<b>${h(nm)}</b>`:h(nm)} <span class="muted">${legN} ${STROKES[st2]||st2}</span></span>
+          <span class="num">${legT!=null?`<b>${tf(legT)}</b>`:""}${mp?` <span class="muted">MPP ${tf(mp.t)}</span>${legT!=null?" "+gp(legT-mp.t):""}`:""}</span></div>
+          ${mine?noteBox(nidRel(key,e),{...noteMeta(m,e,key,`Relais ${count}×${legN} ${STROKES[stroke]||""}`),d:legN,s:st2,leg:l.pos}):""}</div>`}).join("");
+      html+=`<div class="ccard${o.res?" fin":""}"><h4>Relais ${count}×${legN} ${h(STROKES[stroke]||stroke)}<small>Épr. ${h(x.number)}${x.time?" · "+h(x.time):""}${e.r==="FIN"?" · finale":""}</small></h4>
+        <div class="muted" style="font-size:13px;margin-top:-4px">${h(r.nametext||r.clubname||"Équipe")}${(o.heat||r.heatinfo)?` · série ${h(((o.heat||{}).heatinfo||r.heatinfo||{}).code||"")}`:""}${r.lane?` · couloir ${h(r.lane)}`:""}</div>
+        <dl class="nums"><div><dt>Inscription</dt><dd>${r.entrytime?h(r.entrytime):"—"}</dd></div>
+          ${o.res?`<div class="res"><dt>Réalisé</dt><dd>${swim!=null?tf(swim):`<span class="pill dq">${h(RSTAT[r.status]||"Non classé")}</span>`}</dd></div><div><dt>Place</dt><dd>${+place>0?(place===1?"1er":place+"e"):"—"}${ok.length?` <small style="display:inline">/ ${ok.length}</small>`:""}</dd></div>${place>1&&ok[0]&&swim!=null?`<div><dt>Au 1er</dt><dd>${gp(swim-cs(ok[0].swimtime))}</dd></div>`:""}`:""}</dl>
+        ${legs.length?legHtml:`<p class="muted" style="font-size:13px;margin:0">Composition pas encore publiée dans le direct.</p>`}
+        ${legs.length&&o.res?`<div class="legend">Temps de chaque relayeur tiré des passages ; départ lancé sauf le 1er : comparaison avec la MPP (départ plongé) indicative.</div>`:""}</div>`}}
+  return html?`<section class="sess"><h3 class="sh">Relais <span class="muted shm">direct</span></h3><div class="cgrid">${html}</div></section>`:""}
+
+function ago(t){if(!t)return"…";const s=Math.round((Date.now()-t)/1000);return s<60?`il y a ${s} s`:s<3600?`il y a ${Math.round(s/60)} min`:"à "+new Date(t).toLocaleTimeString("fr-CH",{hour:"2-digit",minute:"2-digit"})}
+function liveText(st){
+  if(!st||!st.main)return st&&st.err?"hors ligne · pas encore de données":"chargement…";
+  const when=st.lastOk?new Date(st.lastOk).toLocaleString("fr-CH",{weekday:"short",hour:"2-digit",minute:"2-digit"}):"";
+  if(st.err)return`hors ligne · données de ${when}`;
+  if(+st.main.status===5)return`compétition terminée · données de ${when}`;
+  if(inWindow(st))return"en direct · mise à jour "+ago(st.lastOk);
+  return`actualisation manuelle · données de ${when}`}
 /* Bandeau en tête de l'onglet Compétition. */
 function bar(m){
   watch(m);
@@ -121,25 +213,26 @@ function bar(m){
   if(L.editing===m.id)return`<div class="card" style="padding:10px 14px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center"><b>Résultats en direct</b><input id="liveId" class="tsel" inputmode="numeric" placeholder="n° ou lien live.swimrankings.net" value="${h(id||"")}" style="flex:1;min-width:180px"><button class="btn" data-live-act="save">Lier</button><button class="btn ghost" data-live-act="unlink">Aucun direct</button><button class="btn ghost" data-live-act="cancel">Annuler</button></div>`;
   if(id===undefined)return`<div class="legend" style="margin:0 0 10px">Recherche de la compétition sur live.swimrankings.net…</div>`;
   if(!id)return`<div class="card" style="padding:10px 14px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="muted">Pas de résultats en direct liés à cette compétition.</span><button class="btn ghost" data-live-act="edit">Lier le direct</button></div>`;
-  const st=L.sr[id]||{};const fin=st.main&&st.main.status===5;
+  const st=L.sr[id];const on=st&&!st.err&&inWindow(st);
   return`<div class="card" style="padding:8px 14px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:14px">
-    <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:9px;height:9px;border-radius:50%;background:${st.err?"var(--lane)":fin?"var(--muted)":"var(--good)"}"></i><b>Direct</b></span>
-    <span class="muted" id="liveAgo">${st.err?h(st.err):fin?"compétition terminée":"mise à jour "+ago(st.lastOk)}</span>
+    <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:9px;height:9px;border-radius:50%;background:${st&&st.err?"var(--lane)":on?"var(--good)":"var(--muted)"}"></i><b>Direct</b></span>
+    <span class="muted" id="liveAgo">${h(liveText(st))}</span>
     <span style="flex:1"></span><button class="btn ghost" data-live-act="now" style="padding:4px 10px">Actualiser</button><button class="btn ghost" data-live-act="edit" style="padding:4px 10px">Changer</button>
     <a href="https://live.swimrankings.net/${h(id)}/" target="_blank" rel="noopener" class="muted" style="font-size:13px">swimrankings ↗</a></div>`}
 let watched=null,timer=null;
+/* À l'ouverture : données gardées sur l'appareil tout de suite ; chargement réseau seulement si rien n'est gardé
+   ou si la compétition est en cours. */
 function watch(m){
   if(watched!==m.id){watched=m.id;
-    if(L.links[m.id]===undefined)autoLink(m).then(()=>{if(L.links[m.id])refresh(m,true).then(rerender);else rerender()});
-    else if(L.links[m.id])refresh(m,true).then(rerender)}
+    const go=()=>{const id=L.links[m.id];if(!id)return rerender();const st=stOf(id);st.changed=true;
+      if(!st.lastOk||inWindow(st))refresh(m,true).then(rerender);else rerender()};
+    if(L.links[m.id]===undefined)autoLink(m).then(go);else go()}
   if(!timer)timer=setInterval(tick,5000)}
 function tick(){
   const a=document.getElementById("liveAgo");const id=watched&&L.links[watched],st=id&&L.sr[id];
-  if(a&&st&&!st.err&&st.main&&st.main.status!==5)a.textContent="mise à jour "+ago(st.lastOk);
-  if(!watched||!id||document.hidden||typeof S==="undefined"||S.view!=="comp")return;
-  if(st&&st.main&&st.main.status===5)return;
-  const m=(typeof C!=="undefined"?C.meets:[]).find(x=>x.id===watched);if(!m||!isActive(m))return;
-  if(!st||Date.now()-(st.lastOk||0)>=POLL_MS-1000)refresh(m,false).then(rerender)}
+  if(a&&st)a.textContent=liveText(st);
+  if(!watched||!id||document.hidden||typeof S==="undefined"||S.view!=="comp"||!inWindow(st))return;
+  if(Date.now()-(st.lastOk||0)>=POLL_MS-1000||(st.err&&Date.now()-(st.lastTry||0)>=POLL_MS)){st.lastTry=Date.now();const m=(typeof C!=="undefined"?C.meets:[]).find(x=>x.id===watched);if(m)refresh(m,false).then(rerender)}}
 function rerender(){
   const st=watched&&L.links[watched]&&L.sr[L.links[watched]];
   if(st&&st.changed===false)return;if(st)st.changed=false;
@@ -152,12 +245,12 @@ function pickerHtml(){
   const g=L.meetList.find(x=>x.code===L.pickNation)||L.meetList[0];const ms=(g?g.meets:[]).filter(x=>x.status!==5).sort((a,b)=>a.startdate.localeCompare(b.startdate));
   return`<div style="margin-top:14px;text-align:left"><div class="ctl"><label class="l" for="livePickNat">Pays</label><select id="livePickNat" class="tsel">${L.meetList.map(x=>`<option value="${h(x.code)}"${g&&x.code===g.code?" selected":""}>${h(x.name)}</option>`).join("")}</select><button class="btn ghost" data-live-act="pickclose">Fermer</button></div>
     ${ms.length?`<div class="card">${ms.map(x=>`<button class="sw" style="padding:10px 12px;border-bottom:1px solid var(--line);border-radius:0" data-live-create="${h(x.id)}"><span><b>${h(x.name)}</b><br><span class="muted">${h(x.city)} · ${h(x.startdate)}${x.enddate!==x.startdate?" – "+h(x.enddate):""}</span></span><span class="pts">créer ›</span></button>`).join("")}</div>`:`<p class="muted">Aucune compétition à venir dans ce pays.</p>`}
-    <p class="legend">Seuls tes nageurs (ceux de la liste du carnet) sont repris, avec leurs épreuves individuelles. Les relais restent à importer par Lenex.</p><div id="liveMsg" class="msg"></div></div>`}
+    <p class="legend">Seuls tes nageurs (ceux de la liste du carnet) sont repris, avec leurs épreuves individuelles. Les relais de ton club s\u2019affichent tout seuls depuis le direct.</p><div id="liveMsg" class="msg"></div></div>`}
 async function createFromLive(id){
   const msg=t=>{const el=document.getElementById("liveMsg");if(el)el.textContent=t};
   msg("Lecture du direct…");
   try{
-    const st=await loadSr(id);const roster=Object.entries(S.athletes).filter(([,a])=>a.mine!==false);
+    const st=await loadSr(id,true);const roster=Object.entries(S.athletes).filter(([,a])=>a.mine!==false);
     const mine=roster.map(([k])=>[k,st.byKey[k]]).filter(x=>x[1]);
     if(!mine.length){msg("Aucun de tes nageurs n'est inscrit à cette compétition (ou les inscriptions ne sont pas encore publiées).");return}
     const files=await pool(mine,6,([,a])=>getJ(`/meets/${id}/athletes/${a.id}.json`));
@@ -195,7 +288,8 @@ document.addEventListener("click",e=>{
 document.addEventListener("change",e=>{if(e.target.id==="livePickNat"){L.pickNation=e.target.value;renderComp()}});
 document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="liveId"){e.preventDefault();document.querySelector('[data-live-act="save"]')?.click()}});
 
-window.LIVE={result,nums,extra,finals,bar,pickerHtml};
+{const st=document.createElement("style");st.textContent=".splits.cmp td,.splits.cmp th{padding:3px 4px;font-size:13px}.splits.cmp .pc{text-align:right}";document.head.appendChild(st)}
+window.LIVE={result,nums,extra,finals,bar,pickerHtml,prelim,relayCards};
 
 /* ================= SYNC ================= */
 function syncBadge(st){

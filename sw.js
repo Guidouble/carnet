@@ -1,6 +1,6 @@
 /* Carnet : met l'application en cache pour un démarrage instantané au bord du bassin.
    Les données de live.swimrankings.net ne passent jamais par le cache (toujours fraîches). */
-const VERSION="carnet-v1";
+const VERSION="carnet-v2";
 const SHELL=["./","./index.html","./store.js","./app.js","./manifest.webmanifest","./icon-192.png","./icon-512.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(VERSION).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()))});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==VERSION).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});

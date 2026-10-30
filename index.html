@@ -835,19 +835,20 @@ function indCard(m,e,en,forAth,srcId){
   const head=forAth?`<h4>${evLabel(e)}<small>Épr. ${e.n}${e.r&&e.r!=="TIM"?" · "+roundName(e.r):""}${e.time?" · "+e.time:""}</small></h4>`
     :`<h4>${esc(en.first)} ${esc(en.last)}<small>${esc(where)}</small></h4>`;
   const ec=en.ec&&en.ec!==c?`<small>bassin ${en.ec==="LCM"?"50":"25"} m</small>`:"";
-  let nums=`<div><dt>Inscription</dt><dd>${en.et?fmt(en.et):"NT"}${ec}</dd></div>`;
+  const pre=e.r==="FIN"?LIVE.prelim(m,e,en.a):null;
+  let nums=pre&&pre.swim!=null?`<div><dt>Séries</dt><dd>${fmt(pre.swim)}${pre.place>0?`<small>${pre.place===1?"1er":pre.place+"e"} des séries</small>`:""}</dd></div>`:`<div><dt>Inscription</dt><dd>${en.et?fmt(en.et):"NT"}${ec}</dd></div>`;
   nums+=c==="SCM"?mppCell("MPP 25",p25)+mppCell("MPP 50",p50):mppCell("MPP 50",p50);
   {const l=lastOf(en.a,e.d,e.s,c,m.info.start);nums+=mppCell(`Dernier ${c==="SCM"?"25":"50"}`,l)}
   if(res)nums+=`<div class="res"><dt>Réalisé</dt><dd>${res.st?`<span class="pill dq">${esc(res.st)}</span>`:fmt(res.t)}${!res.st&&ref?`<small>${dSpan(res.t-ref.t,true)} vs MPP</small>`:""}</dd></div>`;
-  else if(lv&&lv.kind==="res")nums+=LIVE.nums(lv,ref,en.et);
+  else if(lv&&lv.kind==="res")nums+=LIVE.nums(lv,ref,pre&&pre.swim!=null?pre.swim:en.et,e.r==="FIN");
   else if(dns)nums+=`<div class="res"><dt>Réalisé</dt><dd><span class="pill dq">Forfait</span></dd></div>`;
   else if(e.r==="FIN"){const pt=x.t[srcId];if(pt)nums+=`<div><dt>Temps séries</dt><dd>${fmt(pt)}${ref?`<small>${dSpan(pt-ref.t,true)} vs MPP</small>`:""}</dd></div>`}
   else if(fin)nums+=`<div class="res"><dt><label for="rt-${esc(id)}">Temps séries</label></dt><dd><input class="tin rt" id="rt-${esc(id)}" data-nid="${esc(id)}" inputmode="decimal" autocomplete="off" placeholder="0:00.00" value="${man?fmt(man):""}">${man&&ref?`<small>${dSpan(man-ref.t,true)} vs MPP</small>`:""}</dd></div>`;
   const days=[...new Set(m.sessions.map(s=>s.date))];
-  const act=e.r==="FIN"?`<div class="cact"><button type="button" class="cbtn" data-dns="${esc(id)}" aria-pressed="${dns}">Forfait</button>${days.length>1?`<label class="muted" style="font-size:13px">Jour <select class="tsel fday" data-src="${esc(srcId)}">${days.map(d=>`<option value="${d}"${d===e.date?" selected":""}>${dayShort(d)}</option>`).join("")}</select></label>`:""}</div>`
-    :`<div class="cact"><button type="button" class="cbtn" data-dns="${esc(id)}" aria-pressed="${dns}">Forfait</button><button type="button" class="cbtn" data-fin="${esc(id)}" data-date="${e.date}" aria-pressed="${fin}">${fin?"Finale ajoutée":"Finale"}</button></div>`;
+  const act=e.r==="FIN"?`<div class="cact"><button type="button" class="cbtn" data-dns="${esc(id)}" aria-pressed="${dns}">Forfait</button></div>`
+    :`<div class="cact"><button type="button" class="cbtn" data-dns="${esc(id)}" aria-pressed="${dns}">Forfait</button></div>`;
   const sp=ref&&ref.sp&&ref.sp.length?`<details class="spl"><summary>Passages de la MPP ${c==="SCM"?"25":"50"}</summary>${splitsTable(ref)}</details>`:"";
-  return`<div class="ccard${dns?" dns":""}${e.r==="FIN"?" fin":""}">${head}${forAth&&where?`<div class="muted" style="font-size:13px;margin-top:-4px">${esc(where)}</div>`:""}<dl class="nums">${nums}</dl>${act}${LIVE.extra(lv)}${sp}${noteBox(id,noteMeta(m,e,en.a,evLabel(e)+(e.r==="FIN"?" finale":"")))}</div>`}
+  return`<div class="ccard${dns?" dns":""}${e.r==="FIN"?" fin":""}">${head}${forAth&&where?`<div class="muted" style="font-size:13px;margin-top:-4px">${esc(where)}</div>`:""}<dl class="nums">${nums}</dl>${act}${lv&&lv.kind==="res"&&lv.swim!=null?LIVE.extra(lv,ref):sp}${noteBox(id,noteMeta(m,e,en.a,evLabel(e)+(e.r==="FIN"?" finale":"")))}</div>`}
 /* Finales ajoutées pendant la compétition : une carte de plus, même épreuve, round FIN. */
 function finalsOf(m,evs,ents){const x=X(m.id),out=[];
   for(const en of ents){if(en.relay)continue;const e=evs[en.ev];if(!e)continue;const f=x.fin[nidInd(en.a,e)];
@@ -892,6 +893,7 @@ function renderComp(){
         h+=`<div class="evh"><b>Épr. ${e.n}</b><span class="evn">${evLabel(e)}</span><span class="muted">${GENDER[e.g]||""}${e.r&&e.r!=="TIM"?" · "+roundName(e.r):""}${e.time?" · "+e.time:""}</span></div>
           <div class="cgrid">${el.map(x=>x.relay?relCard(m,e,x,null):indCard(m,e,x,false)).join("")}</div>`}
       h+=`</section>`}
+    h+=LIVE.relayCards(m,C.day,null);
     const fins=finalsOf(m,evs,ents).filter(f=>f.e.date===C.day).sort((p,q)=>p.e.n-q.e.n||(p.x.last||"").localeCompare(q.x.last||"","fr"));
     if(fins.length){h+=`<section class="sess"><h3 class="sh">Finales</h3>`;let cur=null;
       for(const f of fins){if(f.e.id!==cur){if(cur)h+=`</div>`;cur=f.e.id;h+=`<div class="evh"><b>Épr. ${f.e.n}</b><span class="evn">${evLabel(f.e)}</span><span class="muted">${GENDER[f.e.g]||""} · finale</span></div><div class="cgrid">`}
@@ -906,8 +908,9 @@ function renderComp(){
       if(e.sess!==ses){ses=e.sess;const s=sessOf(e);h+=`<div class="sesslbl">${e.sess===999?"Finales":`Réunion ${e.sess}${s.warm?" · échauffement "+s.warm:""}${s.time?" · début "+s.time:""}`}</div>`}
       h+=x.relay?relCard(m,e,x,C.ath):indCard(m,e,x,true,src)}
     if(day)h+=`</div></section>`;else h+=`<div class="card empty-state"><b>Aucune course</b>Ce nageur n'a pas d'engagement dans cette compétition.</div>`;
+    h+=LIVE.relayCards(m,null,C.ath);
   }
-  h+=`<div class="legend">Touche une étiquette pour la noter : une fois = réussi (+), deux fois = à travailler (−), trois fois = effacée. Les notes s'enregistrent seules et apparaissent ensuite dans la fiche du nageur, à côté du temps réalisé. MPP = meilleur temps avant cette compétition ; Dernier = dernière course dans le bassin de la compétition. « Finale » ajoute une carte dans la section Finales du jour et ouvre la saisie du temps des séries, repris sur la carte de finale.</div><div id="cStatus" class="msg" aria-live="polite"></div>`;
+  h+=`<div class="legend">Touche une étiquette pour la noter : une fois = réussi (+), deux fois = à travailler (−), trois fois = effacée. Les notes s'enregistrent seules et apparaissent ensuite dans la fiche du nageur, à côté du temps réalisé. MPP = meilleur temps avant cette compétition ; Dernier = dernière course dans le bassin de la compétition. Les finales s’ajoutent toutes seules depuis le direct ; sur la carte de finale, le temps des séries remplace le temps d’inscription.</div><div id="cStatus" class="msg" aria-live="polite"></div>`;
   v.innerHTML=h;
   v.querySelectorAll(".ntxt").forEach(autoSize);
 }
