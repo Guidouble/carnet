@@ -71,7 +71,7 @@ async function refresh(m,force){
       for(const e of evR)evE.add(e);
       const nH=[...evE].filter(e=>!st.heats[e]||st.heats[e].status!==5),hh=await pool(nH,6,e=>getJ(`/meets/${id}/heats/${e}.json`));nH.forEach((e,i)=>{if(hh[i])st.heats[e]=hh[i]});
       if(st.club)st.clubFile=await getJ(`/meets/${id}/clubs/${st.club}.json`).catch(()=>st.clubFile);
-      detectNew(st);
+      const nNew=detectNew(st);if(nNew>0||(!st.savedAt&&resultKeys(st).length))setTimeout(()=>saveToCarnet(m,true),0);
       st.stamp=stamp;st.changed=true;
     }
     st.lastOk=Date.now();st.err=null;saveSr(st);
@@ -83,17 +83,17 @@ const FRESH_MS=15*60000;
 function resultKeys(st){
   const keys=[],roster=rosterKeys();
   for(const k of roster){const a=st.byKey[k];const f=a&&st.ath[a.id];if(!f)continue;for(const r of f.results||[])if(r.swimtime||r.status)keys.push(a.id+"|"+r.eventid)}
-  const sw=new Set(Object.values(S.athletes||{}).map(a=>String(a.swrid||"")).filter(Boolean));
+  const sw=new Set(Object.values(S.athletes||{}).map(a=>String(a.swrid||"")).filter(Boolean)),aid=new Set([...roster].map(k=>st.byKey[k]&&String(st.byKey[k].id)).filter(Boolean));
   for(const[eid,x]of Object.entries(st.events||{})){if(!isRelayEv(x))continue;for(const o of relayRows(st,eid)){const r=o.row;if(!o.res||!(r.swimtime||r.status))continue;
-    if((r.athletes||[]).some(a=>sw.has(String(a.swrid||""))))keys.push("R|"+eid+"|"+(r.teamnumber||r.id))}}
+    if((r.athletes||[]).some(a=>sw.has(String(a.swrid||""))||aid.has(String(a.id))))keys.push("R|"+eid+"|"+(r.teamnumber||r.id))}}
   return keys}
 function detectNew(st){
   const sk="cl-seen-"+st.id,seen=ls.get(sk,null),now=Date.now(),keys=resultKeys(st);
   st.fresh=st.fresh||ls.get("cl-fresh-"+st.id,{});
-  if(seen){const S0=new Set(seen);let n=0;for(const k of keys)if(!S0.has(k)){st.fresh[k]=now;n++}
+  let n=0;if(seen){const S0=new Set(seen);for(const k of keys)if(!S0.has(k)){st.fresh[k]=now;n++}
     if(n&&navigator.vibrate)try{navigator.vibrate([120,80,120])}catch(e){}}
   for(const k of Object.keys(st.fresh))if(now-st.fresh[k]>FRESH_MS)delete st.fresh[k];
-  ls.set(sk,keys);ls.set("cl-fresh-"+st.id,st.fresh)}
+  ls.set(sk,keys);ls.set("cl-fresh-"+st.id,st.fresh);return seen?n:keys.length}
 function isFreshKey(st,k){const t=st&&st.fresh&&st.fresh[k];return!!t&&Date.now()-t<FRESH_MS}
 function isFresh(m,e,a){const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return false;const sa=st.byKey[a];if(!sa)return false;const se=srEventFor(st,e);return!!se&&isFreshKey(st,sa.id+"|"+se.id)}
 const NEW_PILL='<span class="pill" style="background:var(--lane);color:#fff;font-size:10px;padding:1px 7px;margin-left:6px">Nouveau</span>';
@@ -199,14 +199,14 @@ function relayRows(st,eid){
   for(const o of out)if(!legsOf(o.row).length&&cf){const pool=[...(cf.results||[]),...(cf.entries||[])].filter(x=>String(x.eventid)===String(eid));
     const hit=pool.find(x=>(x.teamnumber!=null&&String(x.teamnumber)===String(o.row.teamnumber))||(x.id!=null&&String(x.id)===String(o.row.id)))||(pool.length===1?pool[0]:null);if(hit)o.extra=hit}
   return out}
-function relayCards(m,day,ath){
+function relayList(m,day,ath){
   const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return"";
   const course=String(st.main.course)==="1"?"LCM":"SCM";
   const bySr={},byId={};for(const[k,a]of Object.entries(S.athletes||{}))if(a.swrid)bySr[String(a.swrid)]=k;
   for(const[k,a]of Object.entries(st.byKey||{}))if(S.athletes[k])byId[String(a.id)]=k;
   const mineOf=l=>bySr[String(l.swrid||"")]||byId[l.aid]||null;
   const evs=Object.entries(st.events||{}).filter(([,x])=>isRelayEv(x)&&(!day||x.date===day)).sort((p,q)=>(p[1].date+(p[1].time||"")).localeCompare(q[1].date+(q[1].time||""))||(+p[1].number)-(+q[1].number));
-  let html="";
+  const out=[];
   for(const[eid,x]of evs){
     const legN=parseInt(String(x.distance).replace(/^.*x\s*/i,""),10)||0,count=parseInt(x.distance,10)||4,stroke=SR_STROKE[String(x.stroke)]||"FREE";
     const e={id:eid,n:+x.number||0,d:legN,s:stroke,rc:count,relay:true,r:srRound(x),date:x.date,c:course};
@@ -226,16 +226,22 @@ function relayCards(m,day,ath){
         if(mine){const mp=typeof mppOf==="function"?mppOf(key,legN,st2,course,m.info.start):null;
           const inner=[];for(let d=a0+50;d<=a1;d+=50)if(T[d]!=null&&T[a0]!=null)inner.push(`<span class="num">${d-a0} m ${tf(T[d]-T[a0])}${d>a0+50&&T[d-50]!=null?` <span class="muted">(${tf(T[d]-T[d-50])})</span>`:""}</span>`);
           det=`<div class="lg2">${l.pos===1&&legT!=null?'<span class="pill" style="font-size:10px;padding:1px 7px;background:var(--good-soft);color:var(--good)">Temps individuel</span> ':""}${inner.length>1?"Passages : "+inner.join(" · "):""}${mp?`${inner.length>1?"<br>":""}<span class="muted">MPP ${legN} ${STROKES[st2]||st2} : ${tf(mp.t)} (${fmtDate(mp.date)}, départ plongé)</span>`:""}</div>`+
-            noteBox(nidRel(key,e),{...noteMeta(m,e,key,`Relais ${count}×${legN} ${STROKES[stroke]||""}`),d:legN,s:st2,leg:l.pos})}
+            noteBox(nidRel(key,e),{...noteMeta(m,e,key,`Relais ${count}×${legN} ${STROKES[stroke]||""}`),d:legN,s:st2,leg:l.pos,t:legT})}
         return`<div class="leg"><div class="who"><span><b>${l.pos}.</b> ${mine?`<b>${h(nm)}</b>`:h(nm)} <span class="muted">${legN} ${STROKES[st2]||st2}</span></span><span class="num">${legT!=null?`<b>${tf(legT)}</b>`:""}</span></div>${det}</div>`}).join("");
       const where=[heatLabel(hi.code||(r.heatinfo&&r.heatinfo.code),hi.total),r.lane?`couloir ${r.lane}`:"",hi.time||""].filter(Boolean).join(" · ");
       const fr=isFreshKey(st,"R|"+eid+"|"+(r.teamnumber||r.id));
-      html+=`<div class="ccard${o.res?" fin":""}${fr?" fresh":""}"><h4>Relais ${count}×${legN} ${h(STROKES[stroke]||stroke)}${fr?NEW_PILL:""}<small>Épr. ${h(x.number)}${x.time?" · "+h(x.time):""}${e.r==="FIN"?" · finale":""}</small></h4>
+      out.push({eid,x,html:`<div class="ccard${o.res?" fin":""}${fr?" fresh":""}"><h4>Relais ${count}×${legN} ${h(STROKES[stroke]||stroke)}${fr?NEW_PILL:""}<small>Épr. ${h(x.number)}${x.time?" · "+h(x.time):""}${e.r==="FIN"?" · finale":""}</small></h4>
         <div class="muted" style="font-size:13px;margin-top:-4px">Équipe ${h(r.teamnumber||"")}${where?" · "+h(where):""}</div>
         <dl class="nums"><div><dt>Inscription</dt><dd>${r.entrytime&&r.entrytime!=="NT"?h(r.entrytime):"NT"}</dd></div>
           ${o.res?`<div class="res"><dt>Réalisé</dt><dd>${swim!=null?tf(swim):`<span class="pill dq">${h(RSTAT[r.status]||"Non classé")}</span>`}</dd></div><div><dt>Place</dt><dd>${place>0?(place===1?"1er":place+"e"):"—"}${ok.length?` <small style="display:inline">/ ${ok.length}</small>`:""}</dd></div>`:""}</dl>
-        ${legHtml}</div>`}}
-  return html?`<section class="sess"><h3 class="sh">Relais <span class="muted shm">direct</span></h3><div class="cgrid">${html}</div></section>`:""}
+        ${legHtml}</div>`})}}
+  return out}
+function relayCards(m,day,ath){const out=relayList(m,day,ath);return out.length?`<section class="sess"><h3 class="sh">Relais</h3><div class="cgrid">${out.map(o=>o.html).join("")}</div></section>`:""}
+/* Relais groupés par épreuve, pour la vue du jour triée par heure. */
+function relayItems(m,day){const g={};for(const o of relayList(m,day,null))(g[o.eid]=g[o.eid]||{x:o.x,cards:[]}).cards.push(o.html);
+  return Object.values(g).map(({x,cards})=>{const legN=parseInt(String(x.distance).replace(/^.*x\s*/i,""),10)||0,count=parseInt(x.distance,10)||4,stroke=SR_STROKE[String(x.stroke)]||"FREE";
+    return{t:/^\d{1,2}:\d\d/.test(x.time||"")?x.time.padStart(5,"0"):"",n:+x.number||0,html:`<div class="evh"><b>Épr. ${h(x.number)}</b><span class="evn">Relais ${count}×${legN} ${h(STROKES[stroke]||stroke)}</span><span class="muted">${GENDER[SR_GENDER[String(x.gender)]]||""}${srRound(x)==="FIN"?" · finale":""}${x.time?" · "+h(x.time):""}</span></div><div class="cgrid">${cards.join("")}</div>`}})}
+function relayCount(m){return relayList(m,null,null).length}
 
 function ago(t){if(!t)return"…";const s=Math.round((Date.now()-t)/1000);return s<60?`il y a ${s} s`:s<3600?`il y a ${Math.round(s/60)} min`:"à "+new Date(t).toLocaleTimeString("fr-CH",{hour:"2-digit",minute:"2-digit"})}
 function liveText(st){
@@ -289,23 +295,24 @@ function collectResults(st){
       const t=cs(r.swimtime),stt=+r.place>0?"":(r.status?(t==null?"DNS":(SR_ST[String(r.status)]||"DSQ")):(t==null?"DNS":""));
       add(k,{d,s,r:srRound(x),c:course,date:x.date,t:stt==="DNS"?null:t,p:stt||t==null?0:(+r.points||aquaPts(ca.gender,course,d,s,t)),st:stt,sp:parseSp(r.splits,d,t).filter(z=>z[0]<d)})}}
   /* 1er relayeur : temps individuel officiel (départ plongé). */
-  const bySr={};for(const[k,a]of Object.entries(S.athletes||{}))if(a.swrid)bySr[String(a.swrid)]=k;
+  const bySr={},byAid={};for(const[k,a]of Object.entries(S.athletes||{}))if(a.swrid)bySr[String(a.swrid)]=k;
+  for(const k of rosterKeys()){const a=st.byKey[k];if(a)byAid[String(a.id)]=k}
   for(const[eid,x]of Object.entries(st.events||{})){if(!isRelayEv(x))continue;
     const legN=parseInt(String(x.distance).replace(/^.*x\s*/i,""),10)||0,stroke=SR_STROKE[String(x.stroke)]||"FREE",s1=stroke==="MEDLEY"?"BACK":stroke;
-    for(const o of relayRows(st,eid)){const r=o.row,first=(r.athletes||[])[0];if(!o.res||!first)continue;const k=bySr[String(first.swrid||"")];if(!k)continue;
+    for(const o of relayRows(st,eid)){const r=o.row,first=(r.athletes||[])[0];if(!o.res||!first)continue;const k=bySr[String(first.swrid||"")]||byAid[String(first.id)];if(!k)continue;
       const T={0:0};for(const[d,t]of parseSp(r.splits,0,null))T[d]=t;const t=cs(first.swimtime)??T[legN]??null;if(t==null)continue;
       const sp=[];for(let d=50;d<legN;d+=50)if(T[d]!=null)sp.push([d,T[d]]);
       add(k,{d:legN,s:s1,r:srRound(x),c:course,date:x.date,t,p:aquaPts(S.athletes[k].gender,course,legN,s1,t),st:"",sp,relay:true})}}
   return per}
-async function saveToCarnet(m){
+async function saveToCarnet(m,silent){
   const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return;
   const per=collectResults(st),ks=Object.keys(per);const n=ks.reduce((a,k)=>a+per[k].length,0);
-  if(!n){alert("Aucun résultat de tes nageurs à enregistrer pour l'instant.");return}
-  if(!confirm(`Enregistrer ${n} résultat(s) de ${ks.length} nageur(s) dans le carnet ?\nUn import Lenex des résultats de cette compétition remplacera ensuite ces données (sans doublon).`))return;
+  if(!n){if(!silent)alert("Aucun résultat de tes nageurs à enregistrer pour l'instant.");return}
+  if(!silent&&!confirm(`Enregistrer ${n} résultat(s) de ${ks.length} nageur(s) dans le carnet ?\nUn import Lenex des résultats de cette compétition remplacera ensuite ces données (sans doublon).`))return;
   const M=st.main,info={key:M.startdate+"-"+sl(M.city),name:M.name,city:M.city,nation:M.nation||"",course:String(M.course)==="1"?"LCM":"SCM",date:M.startdate};
   try{for(const k of ks)await S.db.collection("swims").doc(k+"__"+info.key).set({athlete:k,meet:info,results:per[k],source:"live:"+id,saved:new Date().toISOString()});
-    st.savedAt=Date.now();saveSr(st);alert(`${n} résultat(s) enregistré(s). Ils apparaissent dans l'onglet Nageur et servent de MPP pour la suite.`);renderComp()}
-  catch(e){alert("Enregistrement interrompu : "+(e.message||e))}}
+    st.savedAt=Date.now();saveSr(st);if(!silent){alert(`${n} résultat(s) enregistré(s).`);renderComp()}}
+  catch(e){if(!silent)alert("Enregistrement interrompu : "+(e.message||e))}}
 
 /* Prochaines compétitions : une fois par jour, cherche sur live.swimrankings.net (Suisse, 3 semaines)
    celles où tes nageurs sont inscrits et crée la feuille de route. Les feuilles créées ainsi se complètent seules. */
@@ -317,7 +324,7 @@ async function autoScan(force){
     const since=new Date(Date.now()-730*864e5).toISOString().slice(0,10),nat=new Set(["SUI"]);
     for(const w of S.swims||[])if(w.meet&&w.meet.nation&&(w.meet.date||"")>=since)nat.add(w.meet.nation);
     const lim=new Date(Date.now()+21*864e5).toISOString().slice(0,10);
-    const cand=groups.filter(g=>nat.has(g.code)).flatMap(g=>g.meets||[]).filter(x=>x.status!==5&&x.enddate>=day&&x.startdate<=lim);
+    const cand=groups.filter(g=>nat.has(g.code)).flatMap(g=>g.meets||[]).filter(x=>x.enddate>=new Date(Date.now()-3*864e5).toISOString().slice(0,10)&&x.startdate<=lim);
     const roster=rosterKeys(),sws=new Set(Object.values(S.athletes||{}).map(a=>String(a.swrid||"")).filter(Boolean));let made=0;
     for(const x of cand){const key=x.startdate+"-"+sl(x.city),ex=C.meets.find(m=>m.id===key);
       if(ex&&!(ex.source&&String(ex.source).startsWith("live:")))continue;
@@ -403,7 +410,7 @@ function heatKey(m,e,en){
 document.addEventListener("click",e=>{const b=e.target.closest("[data-resp]");if(!b)return;const box=b.closest(".nbox");if(!box||typeof C==="undefined")return;
   const id=box.dataset.nid,cur=C.notes[id]||{},nv=Math.max(0,(+cur.resp||0)+(+b.dataset.resp));C.notes[id]={...cur,resp:nv};
   const v=box.querySelector("[data-respv]");if(v)v.textContent=nv;writeNote(box)});
-window.LIVE={autoScan,heatKey,restoreOpen,spLine,extraAny,isFresh,heatLabel,result,nums,extra,finals,bar,pickerHtml,prelim,relayCards};
+window.LIVE={relayItems,relayCount,autoScan,heatKey,restoreOpen,spLine,extraAny,isFresh,heatLabel,result,nums,extra,finals,bar,pickerHtml,prelim,relayCards};
 
 /* ================= SYNC ================= */
 function syncBadge(st){

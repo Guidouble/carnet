@@ -321,7 +321,7 @@ function detail(r,hist){
       `</tbody></table><div class="legend">Barre plus longue = segment plus lent (ramené au 50 m). Orange : plus de 3 % au-dessus de l'allure médiane.</div>`;
   }else sp=`<p class="muted">Pas de temps de passage dans le Lenex pour cette course.</p>`;
   const h=[...hist].sort((a,b)=>a.date.localeCompare(b.date));
-  const rows=h.slice().sort((a,b)=>(valid(a)?a.t:1e9)-(valid(b)?b.t:1e9)).map(x=>{const n=noteFor(S.sel,x);return`<tr${n?' class="hasnote"':""}><td>${fmtDate(x.date)}</td><td class="r">${x.st?`<span class="pill dq">${esc(x.st)}</span>`:fmt(x.t)}</td><td class="r">${x.p||""}</td><td class="muted">${esc(x.meet.city)}${x.r&&x.r!=="TIM"?" · "+esc(roundName(x.r)):""}${LIVE.spLine({...x})}</td></tr>${n?`<tr class="nrow"><td></td><td colspan="3">${noteLine(n)}</td></tr>`:""}`}).join("");
+  const rows=h.slice().sort((a,b)=>(valid(a)?a.t:1e9)-(valid(b)?b.t:1e9)).map(x=>{const n=noteFor(S.sel,x);return`<tr${n?' class="hasnote"':""}><td>${fmtDate(x.date)}</td><td class="r">${x.st?`<span class="pill dq">${esc(x.st)}</span>`:fmt(x.t)}</td><td class="r">${x.p||""}</td><td class="muted">${esc(x.meet.city)}${x.r&&x.r!=="TIM"?" · "+esc(roundName(x.r)):""}${x.relay?" · 1er relais":""}${LIVE.spLine({...x})}</td></tr>${n?`<tr class="nrow"><td></td><td colspan="3">${noteLine(n)}</td></tr>`:""}`}).join("");
   return `<div class="dgrid"><div><h4>Temps de passage · ${fmt(r.t)} (${fmtDate(r.date)})</h4>${sp}</div>
     <div><h4>Toutes les courses (${h.length})</h4>${chart(h.filter(valid))}<table class="splits"><tbody>${rows}</tbody></table></div></div>`;
 }
@@ -348,12 +348,12 @@ function recent(races,b){
     h+=`<tr><td colspan="5" style="background:var(--sunk);font-weight:600">${esc(m.meet.name)} <span class="muted" style="font-weight:400">· ${esc(m.meet.city)} · ${fmtDate(m.meet.date)}</span></td></tr>`;
     const used=new Set();
     for(const r of m.rs.sort((x,y)=>evSortKey(evKey(x))-evSortKey(evKey(y)))){const pb=valid(r)&&b[evKey(r)]===r,n=noteFor(S.sel,r);if(n)used.add(n);
-      h+=`<tr${n?' class="hasnote"':""}><td class="muted">${fmtDate(r.date)}</td><td class="ev">${evName(r.d,r.s)}${r.r&&r.r!=="TIM"?` <span class="muted">${roundName(r.r)}</span>`:""}</td><td class="r time">${r.st?`<span class="pill dq">${esc(r.st)}</span>`:fmt(r.t)}</td><td class="r">${r.p||""}</td><td>${pb?'<span class="pill">MT</span>':""}</td></tr>${LIVE.spLine(r)?`<tr class="nrow"><td></td><td colspan="4">${LIVE.spLine(r)}</td></tr>`:""}`;
+      h+=`<tr${n?' class="hasnote"':""}><td class="muted">${fmtDate(r.date)}</td><td class="ev">${evName(r.d,r.s)}${r.r&&r.r!=="TIM"?` <span class="muted">${roundName(r.r)}</span>`:""}${r.relay?` <span class="muted">1er relais</span>`:""}</td><td class="r time">${r.st?`<span class="pill dq">${esc(r.st)}</span>`:fmt(r.t)}</td><td class="r">${r.p||""}</td><td>${pb?'<span class="pill">MT</span>':""}</td></tr>${LIVE.spLine(r)?`<tr class="nrow"><td></td><td colspan="4">${LIVE.spLine(r)}</td></tr>`:""}`;
       if(n)h+=`<tr class="nrow"><td></td><td colspan="4">${noteLine(n)}</td></tr>`}
     /* Notes sans résultat rattaché : relais, forfaits, ou compétition dont le Lenex des résultats n'a pas la même date. */
     const to=addDays(m.meet.date,5);
     for(const n of Object.values(C.notes))if(n.a===S.sel&&!used.has(n)&&n.date>=m.meet.date&&n.date<=to&&(n.relay||!m.rs.some(r=>noteFor(S.sel,r)===n)))
-      h+=`<tr class="nrow"><td class="muted">${fmtDate(n.date)}</td><td colspan="4"><b>${esc(n.ev||evName(n.d,n.s))}</b> ${noteLine(n)}</td></tr>`}
+      h+=`<tr class="nrow"><td class="muted">${fmtDate(n.date)}</td><td colspan="4"><b>${esc(n.ev||evName(n.d,n.s))}</b>${n.t?` <span class="time">${fmt(n.t)}</span>`:""} ${noteLine(n)}</td></tr>`}
   return h+`</tbody></table></div><div class="legend">MT = meilleur temps de la période sélectionnée. 6 compétitions les plus récentes. Les étiquettes et notes viennent de l'onglet Compétition.</div></section>`;
 }
 $("athBody").addEventListener("click",e=>{const tr=e.target.closest(".row");if(!tr)return;S.open=S.open===tr.dataset.ev?null:tr.dataset.ev;renderAth()});
@@ -884,24 +884,27 @@ function renderComp(){
     ${C.confirmDel?`<button class="btn ghost" id="cDel">Confirmer le retrait</button><button class="btn ghost" id="cDelNo">Annuler</button>`:`<button class="btn ghost" id="cDel">Retirer la feuille de route</button>`}</div>
     ${C.confirmDel?`<p class="msg">Seule la feuille de route est retirée. Les notes restent dans les fiches nageurs.</p>`:""}
     ${LIVE.bar(m)}<div class="ahead"><div><h2>${esc(m.info.name)}</h2><div class="meta"><span>${esc(m.info.city)}</span><span>${meetDates(m.info)}</span><span>Bassin ${m.info.course==="LCM"?"50":"25"} m</span>${isActive(m)?"":`<span class="pill dq">terminée</span>`}</div></div>
-    <div class="kpis"><div class="kpi"><b>${plist.length}</b><span>Nageurs</span></div><div class="kpi"><b>${ind.length}</b><span>Départs indiv.</span></div><div class="kpi"><b>${rel.length}</b><span>Relais</span></div></div></div>`;
+    <div class="kpis"><div class="kpi"><b>${plist.length}</b><span>Nageurs</span></div><div class="kpi"><b>${ind.length}</b><span>Départs indiv.</span></div><div class="kpi"><b>${rel.length||LIVE.relayCount(m)}</b><span>Relais</span></div><div class="kpi"><b>${finalsOf(m,evs,ents).length}</b><span>Finales</span></div></div></div>`;
   const sessOf=e=>m.sessions.find(s=>s.n===e.sess&&s.date===e.date)||m.sessions.find(s=>s.n===e.sess)||{};
   const sessHead=s=>`<h3 class="sh">Réunion ${s.n} <span class="muted shm">${s.warm?"échauffement "+s.warm:""}${s.warm&&s.time?" · ":""}${s.time?"début "+s.time:""}</span></h3>`;
   if(C.mode==="day"){
     h+=`<div class="ctl"><span class="seg dayseg" role="group" aria-label="Jour">${days.map(d=>`<button data-cd="${d}" aria-pressed="${d===C.day}">${dayShort(d)}</button>`).join("")}</span></div>`;
-    for(const s of m.sessions.filter(s=>s.date===C.day)){
-      const se=m.events.filter(e=>e.date===s.date&&e.sess===s.n).sort((a,b)=>a.n-b.n);if(!se.length)continue;
-      h+=`<section class="sess">${sessHead(s)}`;
-      for(const e of se){const el=ents.filter(x=>x.ev===e.id).sort((x,y)=>x.relay||y.relay?0:LIVE.heatKey(m,e,x)-LIVE.heatKey(m,e,y)||(x.last||"").localeCompare(y.last||"","fr"));
-        h+=`<div class="evh"><b>Épr. ${e.n}</b><span class="evn">${evLabel(e)}</span><span class="muted">${GENDER[e.g]||""}${e.r&&e.r!=="TIM"?" · "+roundName(e.r):""}${e.time?" · "+e.time:""}</span></div>
-          <div class="cgrid">${el.map(x=>x.relay?relCard(m,e,x,null):indCard(m,e,x,false)).join("")}</div>`}
-      h+=`</section>`}
-    h+=LIVE.relayCards(m,C.day,null);
-    const fins=finalsOf(m,evs,ents).filter(f=>f.e.date===C.day).sort((p,q)=>p.e.n-q.e.n||(p.x.last||"").localeCompare(q.x.last||"","fr"));
-    if(fins.length){h+=`<section class="sess"><h3 class="sh">Finales</h3>`;let cur=null;
-      for(const f of fins){if(f.e.id!==cur){if(cur)h+=`</div>`;cur=f.e.id;h+=`<div class="evh"><b>Épr. ${f.e.n}</b><span class="evn">${evLabel(f.e)}</span><span class="muted">${GENDER[f.e.g]||""} · finale</span></div><div class="cgrid">`}
-        h+=indCard(m,f.e,f.x,false,f.src)}
-      h+=`</div></section>`}
+    /* Toute la journée dans l'ordre horaire : séries, relais et finales mêlés. */
+    const tm=t=>/^\d{1,2}:\d\d/.test(t||"")?String(t).slice(0,5).padStart(5,"0"):"",items=[];
+    for(const e of m.events.filter(e=>e.date===C.day)){const el=ents.filter(x=>x.ev===e.id).sort((x,y)=>x.relay||y.relay?0:LIVE.heatKey(m,e,x)-LIVE.heatKey(m,e,y)||(x.last||"").localeCompare(y.last||"","fr"));if(!el.length)continue;
+      items.push({t:tm(e.time)||tm(sessOf(e).time),n:e.n,html:`<div class="evh"><b>Épr. ${e.n}</b><span class="evn">${evLabel(e)}</span><span class="muted">${GENDER[e.g]||""}${e.r&&e.r!=="TIM"?" · "+roundName(e.r):""}${e.time?" · "+e.time:""}</span></div>
+          <div class="cgrid">${el.map(x=>x.relay?relCard(m,e,x,null):indCard(m,e,x,false)).join("")}</div>`})}
+    const fg={};for(const f of finalsOf(m,evs,ents).filter(f=>f.e.date===C.day))(fg[f.e.id]=fg[f.e.id]||[]).push(f);
+    for(const list of Object.values(fg)){const f0=list[0];list.sort((p,q)=>LIVE.heatKey(m,p.e,p.x)-LIVE.heatKey(m,q.e,q.x)||(p.x.last||"").localeCompare(q.x.last||"","fr"));
+      items.push({t:tm(f0.e.time),n:f0.e.n,html:`<div class="evh"><b>Épr. ${f0.e.n}</b><span class="evn">${evLabel(f0.e)}</span><span class="muted">${GENDER[f0.e.g]||""} · finale${f0.e.time?" · "+f0.e.time:""}</span></div><div class="cgrid">${list.map(f=>indCard(m,f.e,f.x,false,f.src)).join("")}</div>`})}
+    for(const it of LIVE.relayItems(m,C.day))items.push(it);
+    items.sort((a,b)=>(a.t||"99:99").localeCompare(b.t||"99:99")||(a.n||0)-(b.n||0));
+    const ss=m.sessions.filter(s=>s.date===C.day).sort((a,b)=>tm(a.time).localeCompare(tm(b.time))||a.n-b.n);
+    let open=false,cur;
+    for(const it of items){let s=ss[0]||null;for(const x of ss)if(it.t&&tm(x.time)&&tm(x.time)<=it.t)s=x;
+      if(!open||s!==cur){if(open)h+=`</section>`;h+=`<section class="sess">${s?sessHead(s):""}`;open=true;cur=s}
+      h+=it.html}
+    if(open)h+=`</section>`;
   }else{
     h+=`<div class="ctl"><span><label class="l" for="cAth">Nageur</label><select id="cAth" class="tsel">${plist.map(([k,p])=>`<option value="${esc(k)}"${k===C.ath?" selected":""}>${esc(p.first)} ${esc(p.last)}</option>`).join("")}</select></span></div>`;
     const mine=[...ents.filter(x=>x.relay?x.legs.some(l=>l.a===C.ath):x.a===C.ath).map(x=>({x,e:evs[x.ev]})),...finalsOf(m,evs,ents).filter(f=>f.x.a===C.ath)].sort((p,q)=>p.e.date.localeCompare(q.e.date)||p.e.sess-q.e.sess||p.e.n-q.e.n);
