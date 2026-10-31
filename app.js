@@ -44,7 +44,8 @@ async function loadSr(id,full){
   if(st.full&&!full)return st;
   const [main,events,agegroups,athletes]=await Promise.all(["main","events","agegroups","athletes"].map(f=>getJ(`/meets/${id}/${f}.json`)));
   Object.assign(st,{main,events,agegroups,full:true});
-  st.byKey={};for(const a of arr(athletes))st.byKey[sl(a.lastname)+"-"+sl(a.firstname)]=a;
+  st.byKey={};const bySw={};for(const a of arr(athletes)){st.byKey[sl(a.lastname)+"-"+sl(a.firstname)]=a;if(a.swrid)bySw[String(a.swrid)]=a}
+  for(const[k,ca]of Object.entries((typeof S!=="undefined"&&S.athletes)||{}))if(!st.byKey[k]&&ca.swrid&&bySw[String(ca.swrid)])st.byKey[k]=bySw[String(ca.swrid)];
   const cnt={};for(const k of rosterKeys()){const a=st.byKey[k];if(a)cnt[a.clubid]=(cnt[a.clubid]||0)+1}
   st.club=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
   return st}
@@ -252,10 +253,12 @@ function bar(m){
   if(id===undefined)return`<div class="legend" style="margin:0 0 10px">Recherche de la compétition sur live.swimrankings.net…</div>`;
   if(!id)return`<div class="card" style="padding:10px 14px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="muted">Pas de résultats en direct liés à cette compétition.</span><button class="btn ghost" data-live-act="edit">Lier le direct</button></div>`;
   const st=L.sr[id];const on=st&&!st.err&&inWindow(st);
+  if(L.picker)return`<div class="card" style="padding:10px 14px;margin-bottom:12px">${pickerHtml()}</div>`;
   return`<div class="card" style="padding:8px 14px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:14px">
     <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:9px;height:9px;border-radius:50%;background:${st&&st.err?"var(--lane)":on?"var(--good)":"var(--muted)"}"></i><b>Direct</b></span>
     <span class="muted" id="liveAgo">${h(liveText(st))}</span>
     <span style="flex:1"></span><button class="btn ghost" data-live-act="now" style="padding:4px 10px">Actualiser</button><button class="btn ghost" data-live-act="edit" style="padding:4px 10px">Changer</button>
+    <button class="btn ghost" data-live-act="picker" style="padding:4px 10px">+ Compétition</button>
     ${st&&st.main?`<button class="btn ghost" data-live-act="save2" style="padding:4px 10px">${st.savedAt?"Réenregistrer":"Enregistrer"} dans le carnet</button>`:""}
     <a href="https://live.swimrankings.net/${h(id)}/" target="_blank" rel="noopener" class="muted" style="font-size:13px">swimrankings ↗</a></div>`}
 let watched=null,timer=null;
@@ -307,17 +310,19 @@ async function saveToCarnet(m){
 /* Prochaines compétitions : une fois par jour, cherche sur live.swimrankings.net (Suisse, 3 semaines)
    celles où tes nageurs sont inscrits et crée la feuille de route. Les feuilles créées ainsi se complètent seules. */
 async function autoScan(force){
-  const day=todayIso(),mem=ls.get("cl-scan",{});if(!force&&mem.day===day)return;
+  const day=todayIso(),mem=ls.get("cl-scan2",{});if(!force&&mem.day===day)return;
   if(typeof S==="undefined"||!S.db||!Object.keys(S.athletes||{}).length)return;
-  ls.set("cl-scan",{day});
-  try{const groups=await meetList();const g=groups.find(x=>x.code==="SUI");if(!g)return;
+  ls.set("cl-scan2",{day});
+  try{const groups=await meetList();
+    const since=new Date(Date.now()-730*864e5).toISOString().slice(0,10),nat=new Set(["SUI"]);
+    for(const w of S.swims||[])if(w.meet&&w.meet.nation&&(w.meet.date||"")>=since)nat.add(w.meet.nation);
     const lim=new Date(Date.now()+21*864e5).toISOString().slice(0,10);
-    const cand=(g.meets||[]).filter(x=>x.status!==5&&x.enddate>=day&&x.startdate<=lim);
-    const roster=rosterKeys();let made=0;
+    const cand=groups.filter(g=>nat.has(g.code)).flatMap(g=>g.meets||[]).filter(x=>x.status!==5&&x.enddate>=day&&x.startdate<=lim);
+    const roster=rosterKeys(),sws=new Set(Object.values(S.athletes||{}).map(a=>String(a.swrid||"")).filter(Boolean));let made=0;
     for(const x of cand){const key=x.startdate+"-"+sl(x.city),ex=C.meets.find(m=>m.id===key);
       if(ex&&!(ex.source&&String(ex.source).startsWith("live:")))continue;
       let ath;try{ath=arr(await getJ(`/meets/${x.id}/athletes.json`))}catch(e){continue}
-      if(!ath.some(a=>roster.has(sl(a.lastname)+"-"+sl(a.firstname))))continue;
+      if(!ath.some(a=>roster.has(sl(a.lastname)+"-"+sl(a.firstname))||sws.has(String(a.swrid||""))))continue;
       delete L.sr[x.id];if(await createFromLive(String(x.id),{silent:true,update:true}))made++}
     if(made&&S.view==="comp")renderComp()}catch(e){}}
 setTimeout(()=>autoScan(),9000);
@@ -363,7 +368,7 @@ document.addEventListener("click",e=>{
   const b=e.target.closest("[data-live-act],[data-live-create]");if(!b)return;
   if(b.dataset.liveCreate){createFromLive(b.dataset.liveCreate);return}
   const m=(typeof curMeet==="function")&&curMeet();const act=b.dataset.liveAct;
-  if(act==="picker"){L.picker=true;renderComp();return}
+  if(act==="picker"){L.picker=true;L.pickNation=L.pickNation||"SUI";renderComp();return}
   if(act==="pickclose"){L.picker=false;renderComp();return}
   if(!m)return;
   if(act==="edit"){L.editing=m.id;renderComp();setTimeout(()=>document.getElementById("liveId")?.focus(),0)}
@@ -376,7 +381,7 @@ document.addEventListener("click",e=>{
 document.addEventListener("change",e=>{if(e.target.id==="livePickNat"){L.pickNation=e.target.value;renderComp()}});
 document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="liveId"){e.preventDefault();document.querySelector('[data-live-act="save"]')?.click()}});
 
-{const st=document.createElement("style");st.textContent=".legend{display:none!important}.lg2{font-size:13px;margin-top:6px;line-height:1.4}.splq{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}.ccard.fresh{border-color:var(--lane);box-shadow:0 0 0 1px var(--lane)}.splits.cmp td,.splits.cmp th{padding:3px 4px;font-size:13px}.splits.cmp .pc{text-align:right}";document.head.appendChild(st)}
+{const st=document.createElement("style");st.textContent=".respc{display:inline-flex;align-items:center;gap:6px;margin-left:4px}.respb{border:1px solid var(--line);background:var(--bg);border-radius:999px;min-width:38px;min-height:36px;font-size:18px}.respc b{min-width:22px;text-align:center;font-variant-numeric:tabular-nums}.legend{display:none!important}.lg2{font-size:13px;margin-top:6px;line-height:1.4}.splq{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}.ccard.fresh{border-color:var(--lane);box-shadow:0 0 0 1px var(--lane)}.splits.cmp td,.splits.cmp th{padding:3px 4px;font-size:13px}.splits.cmp .pc{text-align:right}";document.head.appendChild(st)}
 const OPEN=new Set(ls.get("cl-open",[]));
 function detKey(d){const c=d.closest(".ccard");const id=c&&(c.querySelector(".nbox")||{}).dataset;return(id&&id.nid||(c&&c.querySelector("h4")?.textContent)||"")+"|"+(d.dataset.k||d.querySelector("summary")?.textContent||"")}
 document.addEventListener("toggle",e=>{const d=e.target;if(!(d instanceof HTMLDetailsElement)||!d.closest("#viewComp"))return;const k=detKey(d);if(d.open)OPEN.add(k);else OPEN.delete(k);ls.set("cl-open",[...OPEN].slice(-300))},true);
@@ -388,7 +393,17 @@ function extraAny(lv,res,e,ref,sp){
   if(lv&&lv.kind==="res"&&lv.swim!=null)return extra(lv,ref);
   if(res&&res.t!=null&&!res.st&&(res.sp||[]).length)return extra({kind:"res",swim:res.t,d:e.d,sp:[...res.sp.filter(x=>x[0]<e.d),[e.d,res.t]],ranking:null},ref);
   return sp}
-window.LIVE={autoScan,restoreOpen,spLine,extraAny,isFresh,heatLabel,result,nums,extra,finals,bar,pickerHtml,prelim,relayCards};
+function heatKey(m,e,en){
+  const id=L.links[m.id],st=id&&L.sr[id];let code=en.heat,lane=en.lane,idx=null;
+  if(st&&st.main){const lv=result(m,e,en.a);if(lv){code=lv.heat||code;lane=lv.lane||lane}
+    const se=srEventFor(st,e),H=se&&st.heats[String(se.id)];
+    if(H&&code!=null)idx=(H.heats||[]).findIndex(x=>String((x.heatinfo&&x.heatinfo.code)||x.code)===String(code))}
+  const base=idx!=null&&idx>=0?idx:(/^\d+$/.test(String(code))?+code:999);return base*100+(+lane||50)}
+/* Respirations (50 NL / 50 Pap) : compteur − / + enregistré avec la note. */
+document.addEventListener("click",e=>{const b=e.target.closest("[data-resp]");if(!b)return;const box=b.closest(".nbox");if(!box||typeof C==="undefined")return;
+  const id=box.dataset.nid,cur=C.notes[id]||{},nv=Math.max(0,(+cur.resp||0)+(+b.dataset.resp));C.notes[id]={...cur,resp:nv};
+  const v=box.querySelector("[data-respv]");if(v)v.textContent=nv;writeNote(box)});
+window.LIVE={autoScan,heatKey,restoreOpen,spLine,extraAny,isFresh,heatLabel,result,nums,extra,finals,bar,pickerHtml,prelim,relayCards};
 
 /* ================= SYNC ================= */
 function syncBadge(st){

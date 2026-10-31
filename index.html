@@ -745,6 +745,10 @@ async function doImport(){
    Les notes ne dépendent pas de la feuille de route : elles restent après l'archivage et se rattachent au résultat
    (même nageur, même jour, même épreuve) dès que le Lenex des résultats est importé. */
 const TAGS=[["dep","Départ"],["coul","Coulées"],["vir","Virages"],["all","Allure"],["fin","Finish"]];
+const TAGL={dep:"Départ",coul:"Coulées",vir:"Virages",all:"Allure",fin:"Finish",nage:"Nage",tech:"Technique",deb:"Début",m1:"1re moitié",m2:"2e moitié",end:"Fin",s_fly:"Pap",s_back:"Dos",s_breast:"Brasse",s_free:"NL"};
+/* Étiquettes selon la course : sprint, demi-fond, fond ; 4 nages : une étiquette par nage. */
+function tagsFor(d,s){d=+d||0;const k=d<=100?["dep","coul","vir","nage","fin"]:d<=400?["dep","vir","all","tech"]:["deb","m1","m2","end"];
+  if(s==="MEDLEY")k.push("s_fly","s_back","s_breast","s_free");return k.map(x=>[x,TAGL[x]])}
 const GENDER={M:"Messieurs",F:"Dames",X:"Mixte"};
 const LEG_MEDLEY=["BACK","BREAST","FLY","FREE"];
 const C={meets:[],notes:{},x:{},pick:null,mode:"day",day:null,ath:null,confirmDel:false};
@@ -823,8 +827,8 @@ function splitsTable(r){
 function mppCell(lbl,r){return`<div><dt>${lbl}</dt><dd>${r?fmt(r.t):"—"}${r?`<small>${fmtDate(r.date)}</small>`:""}</dd></div>`}
 function noteBox(id,meta){
   const n=C.notes[id]||{},t=n.tags||{};
-  return`<div class="nbox" data-nid="${esc(id)}" data-meta="${esc(JSON.stringify(meta))}"><div class="tags" role="group" aria-label="Exécution">${TAGS.map(([k,l])=>{const v=t[k]||0;
-    return`<button type="button" class="tag${v>0?" plus":v<0?" minus":""}" data-tag="${k}" aria-label="${l} : ${v>0?"réussi":v<0?"à travailler":"non noté"}">${l}<span>${v>0?" +":v<0?" −":""}</span></button>`}).join("")}</div>
+  return`<div class="nbox" data-nid="${esc(id)}" data-meta="${esc(JSON.stringify(meta))}"><div class="tags" role="group" aria-label="Exécution">${tagsFor(meta.d,meta.s).map(([k,l])=>{const v=t[k]||0;
+    return`<button type="button" class="tag${v>0?" plus":v<0?" minus":""}" data-tag="${k}" aria-label="${l} : ${v>0?"réussi":v<0?"à travailler":"non noté"}">${l}<span>${v>0?" +":v<0?" −":""}</span></button>`}).join("")}${+meta.d===50&&(meta.s==="FREE"||meta.s==="FLY")?`<span class="respc"><span class="muted">Respi</span><button type="button" class="respb" data-resp="-1" aria-label="Une respiration de moins">−</button><b data-respv>${n.resp||0}</b><button type="button" class="respb" data-resp="1" aria-label="Une respiration de plus">+</button></span>`:""}</div>
     <textarea class="ntxt" id="nt-${esc(id)}" rows="2" placeholder="Note sur la course">${esc(n.text||"")}</textarea></div>`}
 function noteMeta(m,e,a,ev){return{a,date:e.date,d:e.d,s:e.s,r:e.r,relay:!!e.relay,ev,meet:{key:m.info.key,name:m.info.name,city:m.info.city,course:e.c}}}
 
@@ -888,7 +892,7 @@ function renderComp(){
     for(const s of m.sessions.filter(s=>s.date===C.day)){
       const se=m.events.filter(e=>e.date===s.date&&e.sess===s.n).sort((a,b)=>a.n-b.n);if(!se.length)continue;
       h+=`<section class="sess">${sessHead(s)}`;
-      for(const e of se){const el=ents.filter(x=>x.ev===e.id).sort((x,y)=>x.relay?0:(x.last||"").localeCompare(y.last||"","fr"));
+      for(const e of se){const el=ents.filter(x=>x.ev===e.id).sort((x,y)=>x.relay||y.relay?0:LIVE.heatKey(m,e,x)-LIVE.heatKey(m,e,y)||(x.last||"").localeCompare(y.last||"","fr"));
         h+=`<div class="evh"><b>Épr. ${e.n}</b><span class="evn">${evLabel(e)}</span><span class="muted">${GENDER[e.g]||""}${e.r&&e.r!=="TIM"?" · "+roundName(e.r):""}${e.time?" · "+e.time:""}</span></div>
           <div class="cgrid">${el.map(x=>x.relay?relCard(m,e,x,null):indCard(m,e,x,false)).join("")}</div>`}
       h+=`</section>`}
@@ -922,16 +926,16 @@ const noteQ={},notePend={},noteTimer={};
 function writeNote(box){
   const id=box.dataset.nid,meta=JSON.parse(box.dataset.meta),ta=box.querySelector(".ntxt");
   const cur=C.notes[id]||{},tags=Object.fromEntries(Object.entries(cur.tags||{}).filter(([,v])=>v)),text=(ta?ta.value:cur.text||"").trim();
-  C.notes[id]={...meta,tags,text};notePend[id]=(notePend[id]||0)+1;
-  const ref=S.db.collection("notes").doc(id),empty=!text&&!Object.keys(tags).length;
-  noteQ[id]=(noteQ[id]||Promise.resolve()).then(()=>empty?ref.delete():ref.set({...meta,tags,text,upd:new Date().toISOString()}))
+  C.notes[id]={...meta,tags,text,resp:+cur.resp||0};notePend[id]=(notePend[id]||0)+1;
+  const ref=S.db.collection("notes").doc(id),empty=!text&&!Object.keys(tags).length&&!cur.resp;
+  noteQ[id]=(noteQ[id]||Promise.resolve()).then(()=>empty?ref.delete():ref.set({...meta,tags,text,resp:+cur.resp||0,upd:new Date().toISOString()}))
     .then(()=>setCStatus("Note enregistrée"),err=>setCStatus("Note non enregistrée ("+(err.code||"erreur")+"). Modifie-la à nouveau pour réessayer.",true))
     .finally(()=>{notePend[id]--});
 }
 $("viewComp").addEventListener("click",e=>{
   const tg=e.target.closest(".tag");
   if(tg){const box=tg.closest(".nbox"),id=box.dataset.nid,k=tg.dataset.tag,cur=C.notes[id]||{tags:{}};const v=(cur.tags||{})[k]||0,nv=v===0?1:v===1?-1:0;
-    C.notes[id]={...cur,tags:{...(cur.tags||{}),[k]:nv}};const l=TAGS.find(t=>t[0]===k)[1];
+    C.notes[id]={...cur,tags:{...(cur.tags||{}),[k]:nv}};const l=TAGL[k]||k;
     tg.className="tag"+(nv>0?" plus":nv<0?" minus":"");tg.querySelector("span").textContent=nv>0?" +":nv<0?" −":"";tg.setAttribute("aria-label",`${l} : ${nv>0?"réussi":nv<0?"à travailler":"non noté"}`);
     writeNote(box);return}
   const b=e.target.closest("button");if(!b)return;
@@ -961,10 +965,11 @@ $("viewComp").addEventListener("focusout",e=>{const t=e.target;if(!t.classList?.
 
 /* Notes affichées dans la fiche nageur. */
 function noteLine(n){const t=n.tags||{};
-  return`<span class="nline">${TAGS.filter(([k])=>t[k]).map(([k,l])=>`<span class="tg ${t[k]>0?"plus":"minus"}">${l} ${t[k]>0?"+":"−"}</span>`).join("")}${n.text?`<span>${esc(n.text)}</span>`:""}</span>`}
+  return`<span class="nline">${n.resp?`<span class="tg" style="background:var(--sunk)">Respi ${n.resp}</span>`:""}${Object.keys(t).filter(k=>t[k]).map(k=>[k,TAGL[k]||k]).map(([k,l])=>`<span class="tg ${t[k]>0?"plus":"minus"}">${l} ${t[k]>0?"+":"−"}</span>`).join("")}${n.text?`<span>${esc(n.text)}</span>`:""}</span>`}
 function noteFor(a,r){const n=C.notes[`${a}__${r.date}__${r.d}-${r.s}${r.r==="FIN"?"-FIN":""}`];return n&&!n.relay?n:null}
 function refreshNoteBoxes(){document.querySelectorAll("#viewComp .nbox").forEach(box=>{const id=box.dataset.nid;if(notePend[id]>0||noteTimer[id])return;const n=C.notes[id]||{},t=n.tags||{};
   box.querySelectorAll(".tag").forEach(tg=>{const v=t[tg.dataset.tag]||0;tg.className="tag"+(v>0?" plus":v<0?" minus":"");tg.querySelector("span").textContent=v>0?" +":v<0?" −":""});
+  const rv=box.querySelector("[data-respv]");if(rv)rv.textContent=n.resp||0;
   const ta=box.querySelector(".ntxt");if(ta&&document.activeElement!==ta&&ta.value!==(n.text||"")){ta.value=n.text||"";autoSize(ta)}})}
 
 /* ---------- base ---------- */
