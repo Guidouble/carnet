@@ -10,7 +10,14 @@ const SR_STROKE={"1":"FREE","2":"BACK","3":"BREAST","4":"FLY","5":"MEDLEY"};
 const SR_GENDER={"1":"M","2":"F","3":"X"};
 /* Codes de tour Splash observés sur 5 compétitions : 8 et 9 = finales, 2 et 99 = séries du matin, 3 à 7 = demi-finales (supposé). */
 const srRound=e=>{const r=String(e.round||"");return r==="8"||r==="9"?"FIN":/^[3-7]$/.test(r)?"SEM":r==="2"||r==="99"?"PRE":"TIM"};
-const RSTAT={"1":"Hors concours","2":"Disqualifié","3":"Forfait","4":"Abandon"};
+/* Statut d'un résultat non classé. Vu sur 5 compétitions (nov. 2026) : 2 et 7 portent un motif de disqualification et, le plus souvent, un temps ;
+   4 = abandon (motif 113) ; 1 = temps sans classement (hors concours, supposé) ; 3, 6 et 12 = sans temps ni motif (forfait, supposé). */
+const RSTAT={"1":"Hors concours","2":"Disqualifié","3":"Forfait","4":"Abandon","6":"Forfait","7":"Disqualifié","12":"Forfait"};
+const isDq=s=>{s=String(s||"");return s==="2"||s==="7"};
+/* Code de qualification à la fin des séries : A, B, C… = finale, R = réserve. */
+const qualOf=q=>/^[A-HR]$/.test(q||"")?q:"";
+const qualTxt=q=>q==="R"?"Réserve":q?"Finale "+q:"";
+const fmtRt=v=>String(v||"").trim().replace(",",".").replace(/^\+/,"");
 const h=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const sl=s=>(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
 function cs(s){if(s==null)return null;s=String(s).trim().split(/\s+/)[0].replace(",",".");if(!s||/^NT$/i.test(s))return null;
@@ -19,7 +26,8 @@ const tf=c=>{if(c==null)return"—";const m=Math.floor(c/6000),s=(c%6000)/100;re
 const gp=(d)=>d==null||Number.isNaN(d)?'<span class="muted">—</span>':`<span class="dlt" style="color:${d<0?"var(--good)":d>0?"var(--lane)":"var(--muted)"}">${d<0?"−":d>0?"+":"±"}${tf(Math.abs(d))}</span>`;
 const arr=x=>Array.isArray(x)?x:Object.values(x||{}).filter(v=>v&&typeof v==="object"&&v.id!=null);
 const ls={get(k,d){try{return JSON.parse(localStorage.getItem(k)||"null")??d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
-async function getJ(p){const r=await fetch(API+p,{cache:"no-store"});if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}
+/* no-cache : le navigateur revalide avec ETag / Last-Modified. Toujours frais, mais un fichier inchangé ne se retélécharge pas. */
+async function getJ(p){const r=await fetch(API+p,{cache:"no-cache"});if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}
 async function pool(items,n,fn){const out=[];let i=0;await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(i<items.length){const k=i++;try{out[k]=await fn(items[k])}catch(e){out[k]=null}}}));return out}
 
 /* ================= LIVE ================= */
@@ -34,7 +42,7 @@ async function autoLink(m){
 function rosterKeys(){return new Set(typeof S!=="undefined"?Object.keys(S.athletes||{}):[])}
 function saveSr(st){
   const keep=rosterKeys(),byKey={};for(const[k,a]of Object.entries(st.byKey||{}))if(keep.has(k)||(st.club&&String(a.clubid)===st.club))byKey[k]=a;
-  const base={id:st.id,main:st.main,events:st.events,agegroups:st.agegroups,byKey,club:st.club,ath:st.ath,heats:st.heats,stamp:st.stamp,lastOk:st.lastOk,clubFile:st.clubFile};
+  const base={id:st.id,main:st.main,events:st.events,agegroups:st.agegroups,byKey,club:st.club,ath:st.ath,heats:st.heats,stamp:st.stamp,lastOk:st.lastOk,clubFile:st.clubFile,now:st.now};
   try{localStorage.setItem("cl-sr-"+st.id,JSON.stringify({...base,res:st.res}))}
   catch(e){try{localStorage.setItem("cl-sr-"+st.id,JSON.stringify({...base,res:{}}))}catch(e2){}}}
 function restoreSr(id){const c=ls.get("cl-sr-"+id,null);if(!c||!c.main)return null;return{...c,ath:c.ath||{},res:c.res||{},heats:c.heats||{},byKey:c.byKey||{},cached:true}}
@@ -58,7 +66,11 @@ async function refresh(m,force){
     await loadSr(id,!st.full);
     st.main=await getJ(`/meets/${id}/main.json`).catch(()=>st.main);
     const lh=await getJ(`/meets/${id}/lastHeat.json`).catch(()=>null);
-    const stamp=lh&&lh.lastupdate||st.main.lastupdate;
+    const nx=await getJ(`/meets/${id}/lastHeatEntries.json`).catch(()=>null);
+    const now={pub:(lh&&lh.lastupdate)||st.main.lastupdate||"",heat:nx&&nx.heat?{eventid:String(nx.heat.eventid),code:(nx.heat.heatinfo&&nx.heat.heatinfo.code)??nx.heat.code??"",time:(nx.heat.heatinfo&&nx.heat.heatinfo.time)||nx.heat.time||""}:null,session:nx&&nx.nextsession?{date:nx.nextsession.date,time:nx.nextsession.time,name:nx.nextsession.name}:null};
+    if(JSON.stringify(now)!==JSON.stringify(st.now)){st.now=now;st.changed=true}
+    /* Les deux dates : main.json change aussi quand des résultats sont révisés sans nouvelle série. */
+    const stamp=[st.main.lastupdate,lh&&lh.lastupdate].join("|");
     if(force||stamp!==st.stamp){
       const list=[...carnetKeys(m)].map(k=>st.byKey[k]).filter(Boolean);
       const files=await pool(list,6,a=>getJ(`/meets/${id}/athletes/${a.id}.json`));list.forEach((a,i)=>{if(files[i])st.ath[a.id]=files[i]});
@@ -67,9 +79,10 @@ async function refresh(m,force){
       /* relais : classements et séries de toutes les épreuves de relais jusqu'à aujourd'hui (la composition y figure) */
       const td=todayIso();
       for(const[k,x]of Object.entries(st.events||{}))if(isRelayEv(x)&&x.date<=td){evR.add(k);evE.add(k)}
-      const nR=[...evR].filter(e=>!st.res[e]||st.res[e].status!==5),rr=await pool(nR,6,e=>getJ(`/meets/${id}/results/${e}.json`));nR.forEach((e,i)=>{if(rr[i])st.res[e]=rr[i]});
+      /* Un classement officiel (status 5) peut encore être révisé : on le relit le jour même et à chaque « Actualiser ». */
+      const nR=[...evR].filter(e=>force||!st.res[e]||st.res[e].status!==5||(st.events[e]&&st.events[e].date===td)),rr=await pool(nR,6,e=>getJ(`/meets/${id}/results/${e}.json`));nR.forEach((e,i)=>{if(rr[i])st.res[e]=rr[i]});
       for(const e of evR)evE.add(e);
-      const nH=[...evE].filter(e=>!st.heats[e]||st.heats[e].status!==5),hh=await pool(nH,6,e=>getJ(`/meets/${id}/heats/${e}.json`));nH.forEach((e,i)=>{if(hh[i])st.heats[e]=hh[i]});
+      const nH=[...evE].filter(e=>force||!st.heats[e]||st.heats[e].status!==5),hh=await pool(nH,6,e=>getJ(`/meets/${id}/heats/${e}.json`));nH.forEach((e,i)=>{if(hh[i])st.heats[e]=hh[i]});
       if(st.club)st.clubFile=await getJ(`/meets/${id}/clubs/${st.club}.json`).catch(()=>st.clubFile);
       const nNew=detectNew(st);if(nNew>0||(!st.savedAt&&resultKeys(st).length))setTimeout(()=>saveToCarnet(m,true),0);
       st.stamp=stamp;st.changed=true;
@@ -80,9 +93,10 @@ async function refresh(m,force){
 }
 /* Nouveaux résultats de mes nageurs : vibration du téléphone et badge « Nouveau » pendant 15 min. */
 const FRESH_MS=15*60000;
+const resKey=(aid,r)=>aid+"|"+r.eventid+(r.status?"|"+r.status:"");
 function resultKeys(st){
   const keys=[],roster=rosterKeys();
-  for(const k of roster){const a=st.byKey[k];const f=a&&st.ath[a.id];if(!f)continue;for(const r of f.results||[])if(r.swimtime||r.status)keys.push(a.id+"|"+r.eventid)}
+  for(const k of roster){const a=st.byKey[k];const f=a&&st.ath[a.id];if(!f)continue;for(const r of f.results||[])if(r.swimtime||r.status)keys.push(resKey(a.id,r))}
   const sw=new Set(Object.values(S.athletes||{}).map(a=>String(a.swrid||"")).filter(Boolean)),aid=new Set([...roster].map(k=>st.byKey[k]&&String(st.byKey[k].id)).filter(Boolean));
   for(const[eid,x]of Object.entries(st.events||{})){if(!isRelayEv(x))continue;for(const o of relayRows(st,eid)){const r=o.row;if(!o.res||!(r.swimtime||r.status))continue;
     if((r.athletes||[]).some(a=>sw.has(String(a.swrid||""))||aid.has(String(a.id))))keys.push("R|"+eid+"|"+(r.teamnumber||r.id))}}
@@ -95,7 +109,7 @@ function detectNew(st){
   for(const k of Object.keys(st.fresh))if(now-st.fresh[k]>FRESH_MS)delete st.fresh[k];
   ls.set(sk,keys);ls.set("cl-fresh-"+st.id,st.fresh);return seen?n:keys.length}
 function isFreshKey(st,k){const t=st&&st.fresh&&st.fresh[k];return!!t&&Date.now()-t<FRESH_MS}
-function isFresh(m,e,a){const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return false;const sa=st.byKey[a];if(!sa)return false;const se=srEventFor(st,e);return!!se&&isFreshKey(st,sa.id+"|"+se.id)}
+function isFresh(m,e,a){const id=L.links[m.id],st=id&&L.sr[id];if(!st||!st.main)return false;const sa=st.byKey[a];if(!sa)return false;const se=srEventFor(st,e),f=st.ath[sa.id],r=se&&f&&(f.results||[]).find(x=>String(x.eventid)===String(se.id));return!!r&&isFreshKey(st,resKey(sa.id,r))}
 const NEW_PILL='<span class="pill" style="background:var(--lane);color:#fff;font-size:10px;padding:1px 7px;margin-left:6px">Nouveau</span>';
 function todayIso(){const t=new Date();return`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`}
 /* Actualisation automatique seulement pendant la compétition : jour de compétition,
@@ -130,9 +144,10 @@ function result(m,e,a){
     if(g){ranking=g.results||[];const ok=ranking.filter(x=>+x.place>0&&cs(x.swimtime)!=null).sort((x,y)=>x.place-y.place);field=ok.length;winner=ok[0]?cs(ok[0].swimtime):null;second=ok[1]?cs(ok[1].swimtime):null}
     const agd=st.agegroups&&st.agegroups[r.agegroupid];ag=agd&&agd.name?agd.name.trim():"";
     if(place===1&&winner==null)winner=swim;
+    const row=ranking&&ranking.find(x=>String(x.athleteid)===String(sa.id));
     const hi=heatOf(st,r.eventid,sa.id,r.heatinfo&&r.heatinfo.code);
-    return{kind:"res",swim,place,field,winner,second,ranking,ag,status:r.status?String(r.status):"",pb:r.pbest?cs(r.pbest.swimtime):null,flag:r.flag&&r.flag.text||"",
-      fresh:isFreshKey(st,sa.id+"|"+r.eventid),points:+r.points||null,rt:r.reactiontime||"",heat:(r.heatinfo&&r.heatinfo.code)||hi.code,heats:hi.total,lane:r.lane||hi.lane,time:(r.heatinfo&&r.heatinfo.time)||hi.time,sp:parseSp(r.splits,e.d,swim),me:String(sa.id),d:e.d}}
+    return{kind:"res",swim,place,field,winner,second,ranking,ag,status:String(r.status||(row&&row.status)||""),dq:r.commentdsq||(row&&row.commentdsq)||"",q:qualOf(r.qualcode||(row&&row.qualcode)),prov:!!(R&&R.status!=null&&+R.status<5),pb:r.pbest?cs(r.pbest.swimtime):null,flag:r.flag&&r.flag.text||"",
+      fresh:isFreshKey(st,resKey(sa.id,r)),points:+r.points||null,rt:r.reactiontime||"",heat:(r.heatinfo&&r.heatinfo.code)||hi.code,heats:hi.total,lane:r.lane||hi.lane,time:(r.heatinfo&&r.heatinfo.time)||hi.time,sp:parseSp(r.splits,e.d,swim),me:String(sa.id),d:e.d}}
   const hi=heatOf(st,se.id,sa.id,null);
   return hi.code?{kind:"entry",heat:hi.code,heats:hi.total,lane:hi.lane,time:hi.time}:null}
 /* Temps des séries pour une carte de finale : remplace le temps d'inscription. */
@@ -147,12 +162,15 @@ const pct=(d,base)=>base?`${d>0?"+":d<0?"−":"±"}${Math.abs(100*d/base).toFixe
 function nums(lv,ref,et,isFinal){
   if(!lv||lv.kind!=="res")return"";
   const unr=!(lv.place>0);
-  if(lv.swim==null)return`<div class="res"><dt>Direct</dt><dd><span class="pill dq">${h(RSTAT[lv.status]||"Non classé")}</span></dd></div>`;
+  const motif=lv.dq?`<div style="flex:1 0 100%"><dt>Motif</dt><dd style="font-family:var(--body);font-size:14px;font-weight:500;color:var(--lane);line-height:1.35">${h(lv.dq)}</dd></div>`:"";
+  /* Un disqualifié garde souvent un temps : il n'est ni classé ni comparé. */
+  if(lv.swim==null||isDq(lv.status))return`<div class="res"><dt>Direct${lv.fresh?NEW_PILL:""}</dt><dd><span class="pill dq">${h(RSTAT[lv.status]||"Non classé")}</span>${lv.swim!=null?`<small>${tf(lv.swim)} non retenu</small>`:""}</dd></div>${motif}`;
   const toWin=lv.place===1?(lv.second!=null?lv.swim-lv.second:null):(lv.winner!=null?lv.swim-lv.winner:null);
-  return`<div class="res"><dt>Réalisé <span class="pill" style="font-size:10px;padding:0 6px">direct</span>${lv.fresh?NEW_PILL:""}</dt><dd>${tf(lv.swim)}${ref?`<small>${gp(lv.swim-ref.t)} vs MPP</small>`:lv.pb!=null?`<small>${gp(lv.swim-lv.pb)} vs record</small>`:""}</dd></div>
-    <div><dt>Place${lv.ag?" "+h(lv.ag):""}</dt><dd>${unr?`<span class="pill dq">${h(RSTAT[lv.status]||"Non classé")}</span>`:`${lv.place===1?"1er":lv.place+"e"}${lv.field?` <small style="display:inline">/ ${lv.field}</small>`:""}`}${lv.flag==="PB"?'<small style="color:var(--good)">record perso</small>':""}</dd></div>
+  return`<div class="res"><dt>Réalisé <span class="pill" style="font-size:10px;padding:0 6px">${lv.prov?"provisoire":"direct"}</span>${lv.fresh?NEW_PILL:""}</dt><dd>${tf(lv.swim)}${ref?`<small>${gp(lv.swim-ref.t)} vs MPP</small>`:lv.pb!=null?`<small>${gp(lv.swim-lv.pb)} vs record</small>`:""}</dd></div>
+    <div><dt>Place${lv.ag?" "+h(lv.ag):""}</dt><dd>${unr?`<span class="pill dq">${h(RSTAT[lv.status]||"Non classé")}</span>`:`${lv.place===1?"1er":lv.place+"e"}${lv.field?` <small style="display:inline">/ ${lv.field}</small>`:""}`}${lv.flag==="PB"?'<small style="color:var(--good)">record perso</small>':""}${!isFinal&&lv.q?`<small style="color:var(--accent);font-weight:600">${qualTxt(lv.q)}</small>`:""}</dd></div>
     <div><dt>${lv.place===1?"Avance 2e":"Au 1er"}</dt><dd>${gp(toWin)}</dd></div>
-    ${et?`<div><dt>${isFinal?"vs séries":"vs inscription"}</dt><dd>${gp(lv.swim-et)}</dd></div>`:""}`}
+    ${et?`<div><dt>${isFinal?"vs séries":"vs inscription"}</dt><dd>${gp(lv.swim-et)}</dd></div>`:""}
+    ${lv.rt?`<div><dt>Réaction</dt><dd>${h(fmtRt(lv.rt))}</dd></div>`:""}`}
 /* Temps de passage du direct : chaque 100 m et chaque 50 m comparés au même segment de la MPP (carnet). */
 function extra(lv,ref){
   if(!lv||lv.kind!=="res"||lv.swim==null)return"";
@@ -170,7 +188,7 @@ function extra(lv,ref){
       ${half!=null&&lv.d>=100?`<div class="lg2">1re moitié ${tf(half)} · 2e moitié ${tf(lv.swim-half)} · différentiel ${gp(lv.swim-2*half)} (${pct(lv.swim-2*half,half)})${mh!=null&&ref?`<br><span class="muted">MPP : ${tf(mh)} / ${tf(ref.t-mh)} · différentiel ${gp(ref.t-2*mh)} (${pct(ref.t-2*mh,mh)})</span>`:""}</div>`:""}
       <div class="legend">Chaque segment est comparé au même segment de la MPP (en petit dessous) ; sous la distance, le temps de passage. 50 m en orange : plus de 3 % plus lent que la médiane (départ exclu).</div></details>`}
   if(lv.ranking&&lv.ranking.length){const rows=lv.ranking.slice().sort((a,b)=>(+a.place>0?+a.place:999)-(+b.place>0?+b.place:999));
-    out+=`<details class="spl" data-k="rk"><summary>Classement${lv.ag?" "+h(lv.ag):""}</summary><table class="splits"><tbody>${rows.map(x=>`<tr${String(x.athleteid)===lv.me?' style="font-weight:600;background:var(--accent-soft)"':""}><td>${+x.place>0?x.place:"—"}</td><td>${h(x.nametext||"")}<div class="muted" style="font-size:12px">${h(x.clubname||x.clubcode||"")}${x.agetext?" · "+h(x.agetext):""}</div></td><td class="r">${x.swimtime?h(x.swimtime):h(RSTAT[x.status]||"—")}</td></tr>`).join("")}</tbody></table></details>`}
+    out+=`<details class="spl" data-k="rk"><summary>Classement${lv.ag?" "+h(lv.ag):""}</summary><table class="splits"><tbody>${rows.map(x=>`<tr${String(x.athleteid)===lv.me?' style="font-weight:600;background:var(--accent-soft)"':""}><td>${+x.place>0?x.place:"—"}</td><td>${h(x.nametext||"")}<div class="muted" style="font-size:12px">${h(x.clubname||x.clubcode||"")}${x.agetext?" · "+h(x.agetext):""}${qualOf(x.qualcode)?` · <b>${qualTxt(qualOf(x.qualcode))}</b>`:""}${x.commentdsq?`<br><span style="color:var(--lane)">${h(x.commentdsq)}</span>`:""}</div></td><td class="r">${x.swimtime&&!isDq(x.status)?h(x.swimtime):h(RSTAT[x.status]||"—")}</td></tr>`).join("")}</tbody></table></details>`}
   return out}
 /* Finales récupérées automatiquement depuis le direct. */
 function finals(m,evs,ents){
@@ -233,8 +251,8 @@ function relayList(m,day,ath){
       out.push({eid,x,html:`<div class="ccard${o.res?" fin":""}${fr?" fresh":""}"><h4>Relais ${count}×${legN} ${h(STROKES[stroke]||stroke)}${fr?NEW_PILL:""}<small>Épr. ${h(x.number)}${x.time?" · "+h(x.time):""}${e.r==="FIN"?" · finale":""}</small></h4>
         <div class="muted" style="font-size:13px;margin-top:-4px">Équipe ${h(r.teamnumber||"")}${where?" · "+h(where):""}</div>
         <dl class="nums"><div><dt>Inscription</dt><dd>${r.entrytime&&r.entrytime!=="NT"?h(r.entrytime):"NT"}</dd></div>
-          ${o.res?`<div class="res"><dt>Réalisé</dt><dd>${swim!=null?tf(swim):`<span class="pill dq">${h(RSTAT[r.status]||"Non classé")}</span>`}</dd></div><div><dt>Place</dt><dd>${place>0?(place===1?"1er":place+"e"):"—"}${ok.length?` <small style="display:inline">/ ${ok.length}</small>`:""}</dd></div>`:""}</dl>
-        ${legHtml}</div>`})}}
+          ${o.res?`<div class="res"><dt>Réalisé</dt><dd>${swim!=null&&!isDq(r.status)?tf(swim):`<span class="pill dq">${h(RSTAT[r.status]||"Non classé")}</span>`}</dd></div><div><dt>Place</dt><dd>${place>0?(place===1?"1er":place+"e"):"—"}${ok.length?` <small style="display:inline">/ ${ok.length}</small>`:""}</dd></div>`:""}</dl>
+        ${r.commentdsq?`<div style="font-size:14px;font-weight:500;color:var(--lane)">${h(r.commentdsq)}</div>`:""}${legHtml}</div>`})}}
   return out}
 function relayCards(m,day,ath){const out=relayList(m,day,ath);return out.length?`<section class="sess"><h3 class="sh">Relais</h3><div class="cgrid">${out.map(o=>o.html).join("")}</div></section>`:""}
 /* Relais groupés par épreuve, pour la vue du jour triée par heure. */
@@ -249,7 +267,7 @@ function liveText(st){
   const when=st.lastOk?new Date(st.lastOk).toLocaleString("fr-CH",{weekday:"short",hour:"2-digit",minute:"2-digit"}):"";
   if(st.err)return`hors ligne · données de ${when}`;
   if(+st.main.status===5)return`compétition terminée · données de ${when}`;
-  if(inWindow(st))return"en direct · mise à jour "+ago(st.lastOk);
+  if(inWindow(st)){const p=st.now&&st.now.pub?Date.parse(st.now.pub+"Z"):NaN;return"en direct · vérifié "+ago(st.lastOk)+(p?" · dernière publication "+ago(p):"")}
   return`actualisation manuelle · données de ${when}`}
 /* Bandeau en tête de l'onglet Compétition. */
 function bar(m){
@@ -266,7 +284,35 @@ function bar(m){
     <span style="flex:1"></span><button class="btn ghost" data-live-act="now" style="padding:4px 10px">Actualiser</button><button class="btn ghost" data-live-act="edit" style="padding:4px 10px">Changer</button>
     <button class="btn ghost" data-live-act="picker" style="padding:4px 10px">+ Compétition</button>
     ${st&&st.main?`<button class="btn ghost" data-live-act="save2" style="padding:4px 10px">${st.savedAt?"Réenregistrer":"Enregistrer"} dans le carnet</button>`:""}
-    <a href="https://live.swimrankings.net/${h(id)}/" target="_blank" rel="noopener" class="muted" style="font-size:13px">swimrankings ↗</a></div>`}
+    <a href="https://live.swimrankings.net/${h(id)}/" target="_blank" rel="noopener" class="muted" style="font-size:13px">swimrankings ↗</a></div>${nowCard(st)}`}
+/* --- En ce moment : prochaine série de la compétition et prochains départs de mes nageurs ---
+   L'écart est calculé entre deux heures du programme : pas de problème de fuseau ni de délai de publication,
+   mais il ne voit pas le retard ou l'avance réels de la compétition. */
+const hmMin=t=>{const x=/^(\d{1,2}):(\d\d)/.exec(t||"");return x?+x[1]*60+ +x[2]:null};
+function evTxt(x){if(!x)return"";if(x.isrelay){const n=parseInt(x.distance,10)||4,l=parseInt(String(x.distance).replace(/^.*x\s*/i,""),10)||0;return`Relais ${n}×${l} ${STROKES[SR_STROKE[String(x.stroke)]]||""}`}
+  return`${parseInt(x.distance,10)} ${STROKES[SR_STROKE[String(x.stroke)]]||""}${srRound(x)==="FIN"?" finale":""}`}
+function upcoming(st){
+  const out=[];
+  for(const k of rosterKeys()){const a=st.byKey[k],f=a&&st.ath[a.id],ca=S.athletes[k];if(!f||!ca)continue;
+    const done=new Set((f.results||[]).filter(r=>r.swimtime||r.status).map(r=>String(r.eventid)));
+    for(const en of f.entries||[]){const eid=String(en.eventid),x=st.events[eid];if(!x||x.isrelay||done.has(eid))continue;
+      const hi=heatOf(st,eid,a.id,null);out.push({who:`${ca.first} ${ca.last}`,x,code:hi.code,total:hi.total,lane:hi.lane,time:hi.time||x.time||""})}}
+  const sw=new Set(Object.values(S.athletes||{}).map(a=>String(a.swrid||"")).filter(Boolean));
+  const ids=new Set([...rosterKeys()].map(k=>st.byKey[k]&&String(st.byKey[k].id)).filter(Boolean));
+  for(const[eid,x]of Object.entries(st.events||{})){if(!isRelayEv(x))continue;
+    for(const o of relayRows(st,eid)){const r=o.row;if(o.res||!(r.athletes||[]).some(a=>sw.has(String(a.swrid||""))||ids.has(String(a.id??a.athleteid))))continue;
+      const hi=heatOf(st,eid,"",((o.heat||{}).heatinfo||{}).code||(o.heat||{}).code);out.push({who:`Équipe ${r.teamnumber||""}`.trim(),x,code:hi.code,total:hi.total,lane:r.lane,time:hi.time||x.time||""})}}
+  return out.sort((p,q)=>(p.x.date||"").localeCompare(q.x.date||"")||(hmMin(p.time)??9999)-(hmMin(q.time)??9999))}
+function nowCard(st){
+  if(!st||!st.main||!st.now||!inWindow(st))return"";
+  const c=st.now.heat,cx=c&&st.events[c.eventid],cd=cx&&cx.date,cm=c?hmMin(c.time):null,td=todayIso();
+  const list=upcoming(st).filter(u=>!cd||u.x.date>cd||(u.x.date===cd&&(cm==null||hmMin(u.time)==null||hmMin(u.time)>=cm))).slice(0,3);
+  if(!cx&&!list.length)return"";
+  const place=u=>[heatLabel(u.code,u.total),u.lane?`couloir ${u.lane}`:""].filter(Boolean).join(", ");
+  const head=cx?`<div><b>Prochaine série</b> <span class="muted">Épr. ${h(cx.number)} · ${h(evTxt(cx))}${heatLabel(c.code,null)?" · "+h(heatLabel(c.code,(st.heats[c.eventid]&&heatOf(st,c.eventid,"",c.code).total)||null)):""}${c.time?" · "+h(c.time):""}${cd&&cd!==td?" · "+h(cd.split("-").reverse().join(".")):""}</span></div>`:"";
+  const rows=list.map(u=>{const m=hmMin(u.time),gap=u.x.date===cd&&m!=null&&cm!=null?m-cm:null;
+    return`<div style="display:flex;flex-wrap:wrap;gap:0 8px;justify-content:space-between;border-top:1px dashed var(--line);padding-top:4px;margin-top:4px"><span><b>${h(u.who)}</b> ${h(evTxt(u.x))}<span class="muted">${place(u)?" · "+h(place(u)):""}</span></span><span class="num">${u.x.date!==td?h(u.x.date.split("-").reverse().join("."))+" ":""}${h(u.time)}${gap!=null&&gap<=90?` <span class="muted">${gap>0?`≈ ${gap} min au programme`:"prochaine série"}</span>`:""}</span></div>`}).join("");
+  return`<div class="card" id="liveNow" style="padding:8px 14px;margin:-4px 0 12px;font-size:14px">${head}${rows}</div>`}
 let watched=null,timer=null;
 /* À l'ouverture : données gardées sur l'appareil tout de suite ; chargement réseau seulement si rien n'est gardé
    ou si la compétition est en cours. */
@@ -286,14 +332,15 @@ function rerender(){
   if(st&&st.changed===false)return;if(st)st.changed=false;
   if(typeof S!=="undefined"&&S.view==="comp"&&!typingNote()&&!document.activeElement?.classList?.contains("rt")&&document.activeElement?.id!=="liveId")renderComp()}
 
-const SR_ST={"1":"EXH","2":"DSQ","3":"DNS","4":"DNF"};
+const SR_ST={"1":"EXH","2":"DSQ","3":"DNS","4":"DNF","7":"DSQ"};
 function collectResults(st){
   const course=String(st.main.course)==="1"?"LCM":"SCM",per={};
   const add=(k,res)=>{(per[k]=per[k]||[]).push(res)};
   for(const k of rosterKeys()){const a=st.byKey[k],f=a&&st.ath[a.id],ca=S.athletes[k];if(!f||!ca)continue;
     for(const r of f.results||[]){const x=st.events[r.eventid];if(!x||x.isrelay)continue;const d=parseInt(x.distance,10),s=SR_STROKE[String(x.stroke)];if(!d||!s)continue;
-      const t=cs(r.swimtime),stt=+r.place>0?"":(r.status?(t==null?"DNS":(SR_ST[String(r.status)]||"DSQ")):(t==null?"DNS":""));
-      add(k,{d,s,r:srRound(x),c:course,date:x.date,t:stt==="DNS"?null:t,p:stt||t==null?0:(+r.points||aquaPts(ca.gender,course,d,s,t)),st:stt,sp:parseSp(r.splits,d,t).filter(z=>z[0]<d)})}}
+      const G=st.res[String(r.eventid)],row=G&&(G.agegroups||[]).flatMap(g=>g.results||[]).find(y=>String(y.athleteid)===String(a.id));
+      const t=cs(r.swimtime),sc=String(r.status||(row&&row.status)||""),stt=+r.place>0?"":(sc?(SR_ST[sc]||(t==null?"DNS":"DSQ")):(t==null?"DNS":"")),dq=r.commentdsq||(row&&row.commentdsq)||"",rt=fmtRt(r.reactiontime);
+      add(k,{d,s,r:srRound(x),c:course,date:x.date,t:stt==="DNS"?null:t,p:stt||t==null?0:(+r.points||aquaPts(ca.gender,course,d,s,t)),st:stt,sp:parseSp(r.splits,d,t).filter(z=>z[0]<d),...(dq?{dq}:{}),...(rt?{rt}:{})})}}
   /* 1er relayeur : temps individuel officiel (départ plongé). */
   const bySr={},byAid={};for(const[k,a]of Object.entries(S.athletes||{}))if(a.swrid)bySr[String(a.swrid)]=k;
   for(const k of rosterKeys()){const a=st.byKey[k];if(a)byAid[String(a.id)]=k}
@@ -310,7 +357,9 @@ async function saveToCarnet(m,silent){
   if(!n){if(!silent)alert("Aucun résultat de tes nageurs à enregistrer pour l'instant.");return}
   if(!silent&&!confirm(`Enregistrer ${n} résultat(s) de ${ks.length} nageur(s) dans le carnet ?\nUn import Lenex des résultats de cette compétition remplacera ensuite ces données (sans doublon).`))return;
   const M=st.main,info={key:M.startdate+"-"+sl(M.city),name:M.name,city:M.city,nation:M.nation||"",course:String(M.course)==="1"?"LCM":"SCM",date:M.startdate};
-  try{for(const k of ks)await S.db.collection("swims").doc(k+"__"+info.key).set({athlete:k,meet:info,results:per[k],source:"live:"+id,saved:new Date().toISOString()});
+  /* Enregistrement automatique : un import Lenex déjà présent (document sans source live) n'est jamais écrasé. */
+  const lenex=k=>silent&&(S.swims||[]).some(w=>w.athlete===k&&w.meet&&w.meet.key===info.key&&!String(w.source||"").startsWith("live:"));
+  try{for(const k of ks)if(!lenex(k))await S.db.collection("swims").doc(k+"__"+info.key).set({athlete:k,meet:info,results:per[k],source:"live:"+id,saved:new Date().toISOString()});
     st.savedAt=Date.now();saveSr(st);if(!silent){alert(`${n} résultat(s) enregistré(s).`);renderComp()}}
   catch(e){if(!silent)alert("Enregistrement interrompu : "+(e.message||e))}}
 
@@ -393,7 +442,7 @@ const OPEN=new Set(ls.get("cl-open",[]));
 function detKey(d){const c=d.closest(".ccard");const id=c&&(c.querySelector(".nbox")||{}).dataset;return(id&&id.nid||(c&&c.querySelector("h4")?.textContent)||"")+"|"+(d.dataset.k||d.querySelector("summary")?.textContent||"")}
 document.addEventListener("toggle",e=>{const d=e.target;if(!(d instanceof HTMLDetailsElement)||!d.closest("#viewComp"))return;const k=detKey(d);if(d.open)OPEN.add(k);else OPEN.delete(k);ls.set("cl-open",[...OPEN].slice(-300))},true);
 function restoreOpen(){document.querySelectorAll("#viewComp details").forEach(d=>{const o=OPEN.has(detKey(d));if(d.open!==o)d.open=o})}
-function spLine(r){if(!r||r.t==null||r.st)return"";const pts=[...(r.sp||[]).filter(x=>x[0]<r.d),[r.d,r.t]];if(pts.length<2)return"";let pt=0;
+function spLine(r){if(r&&r.st&&r.dq)return`<div class="splq" style="color:var(--lane);font-variant-numeric:normal">${h(r.dq)}</div>`;if(!r||r.t==null||r.st)return"";const pts=[...(r.sp||[]).filter(x=>x[0]<r.d),[r.d,r.t]];if(pts.length<2)return"";let pt=0;
   return`<div class="splq">${pts.map(([d,t])=>{const l=t-pt;pt=t;return`${tf(l)}`}).join(" · ")}</div>`}
 /* Comparaison des passages : direct si disponible, sinon résultat enregistré dans le carnet. */
 function extraAny(lv,res,e,ref,sp){

@@ -222,7 +222,7 @@ const STROKE_LONG={FREE:"Nage libre",BACK:"Dos",BREAST:"Brasse",FLY:"Papillon",M
 /* Temps de base AQUA en vigueur : SCM 2026 (01.09.2026–31.08.2027), LCM 2026 (01.01–31.12.2026), en centièmes. */
 const BASE={"LCM|M|50|FREE":2091,"LCM|M|100|FREE":4640,"LCM|M|200|FREE":10200,"LCM|M|400|FREE":21996,"LCM|M|800|FREE":45212,"LCM|M|1500|FREE":87067,"LCM|M|50|BACK":2355,"LCM|M|100|BACK":5160,"LCM|M|200|BACK":11192,"LCM|M|50|BREAST":2595,"LCM|M|100|BREAST":5688,"LCM|M|200|BREAST":12548,"LCM|M|50|FLY":2227,"LCM|M|100|FLY":4945,"LCM|M|200|FLY":11034,"LCM|M|200|MEDLEY":11269,"LCM|M|400|MEDLEY":24250,"LCM|F|50|FREE":2361,"LCM|F|100|FREE":5171,"LCM|F|200|FREE":11223,"LCM|F|400|FREE":23418,"LCM|F|800|FREE":48412,"LCM|F|1500|FREE":92048,"LCM|F|50|BACK":2686,"LCM|F|100|BACK":5713,"LCM|F|200|BACK":12314,"LCM|F|50|BREAST":2916,"LCM|F|100|BREAST":6413,"LCM|F|200|BREAST":13755,"LCM|F|50|FLY":2443,"LCM|F|100|FLY":5460,"LCM|F|200|FLY":12181,"LCM|F|200|MEDLEY":12570,"LCM|F|400|MEDLEY":26365,"SCM|M|50|FREE":1990,"SCM|F|50|FREE":2283,"SCM|M|100|FREE":4484,"SCM|F|100|FREE":4993,"SCM|M|200|FREE":9861,"SCM|F|200|FREE":10936,"SCM|M|400|FREE":21225,"SCM|F|400|FREE":23025,"SCM|M|800|FREE":44046,"SCM|F|800|FREE":47400,"SCM|M|1500|FREE":84688,"SCM|F|1500|FREE":90824,"SCM|M|50|BACK":2211,"SCM|F|50|BACK":2523,"SCM|M|100|BACK":4816,"SCM|F|100|BACK":5402,"SCM|M|200|BACK":10512,"SCM|F|200|BACK":11733,"SCM|M|50|BREAST":2495,"SCM|F|50|BREAST":2837,"SCM|M|100|BREAST":5528,"SCM|F|100|BREAST":6236,"SCM|M|200|BREAST":11952,"SCM|F|200|BREAST":13250,"SCM|M|50|FLY":2132,"SCM|F|50|FLY":2372,"SCM|M|100|FLY":4768,"SCM|F|100|FLY":5271,"SCM|M|200|FLY":10685,"SCM|F|200|FLY":11932,"SCM|M|100|MEDLEY":4928,"SCM|F|100|MEDLEY":5511,"SCM|M|200|MEDLEY":10888,"SCM|F|200|MEDLEY":12163,"SCM|M|400|MEDLEY":23481,"SCM|F|400|MEDLEY":25548};
 function aquaPts(g,c,d,s,t){const b=BASE[`${c}|${g}|${d}|${s}`];return b&&t?Math.floor(1000*Math.pow(b/t,3)):0}
-const S={athletes:{},swims:[],sel:null,course:"SCM",period:"season",sort:"event",view:"comp",open:null,db:null};
+const S={athletes:{},swims:[],pb:{},sel:null,course:"SCM",period:"season",sort:"event",view:"comp",open:null,db:null};
 try{const v=JSON.parse(localStorage.getItem("ct-ui")||"{}");Object.assign(S,{course:v.course||S.course,period:v.period||S.period,sort:v.sort||S.sort,sel:v.sel||null})}catch(e){}
 function saveUi(){try{localStorage.setItem("ct-ui",JSON.stringify({course:S.course,period:S.period,sort:S.sort,sel:S.sel}))}catch(e){}}
 
@@ -258,6 +258,23 @@ function bests(races){
   for(const r of races){if(!valid(r))continue;const k=evKey(r);if(!m[k]||r.t<m[k].t||(r.t===m[k].t&&r.date<m[k].date))m[k]=r}
   return m;
 }
+/* Un temps de passage devient le meilleur temps d'une épreuve s'il bat une course complète de cette épreuve (même bassin, même période).
+   Exclus : le 4 nages (un passage n'est pas un 4 nages complet) et un passage suspect, dont un partiel voisin s'écarte de plus de 20 % de l'allure médiane (touche manquée). */
+function splitBests(races,b,g){
+  for(const r of races){if(!valid(r)||r.s==="MEDLEY"||!r.sp||!r.sp.length)continue;
+    const pts=[[0,0],...r.sp.filter(x=>x[0]<r.d&&x[1]!=null).sort((x,y)=>x[0]-y[0]),[r.d,r.t]];
+    const pace=pts.slice(1).map((x,i)=>(x[1]-pts[i][1])/(x[0]-pts[i][0]));
+    const med=[...pace].sort((x,y)=>x-y)[Math.floor(pace.length/2)],ok=v=>v>=med*.8&&v<=med*1.2;
+    for(let i=1;i<pts.length-1;i++){const[d,t]=pts[i],k=d+"-"+r.s,cur=b[k];
+      if(!cur||t>=cur.t||!ok(pace[i-1])||!ok(pace[i]))continue;
+      b[k]={...r,d,t,p:aquaPts(g,r.c,d,r.s,t)||0,sp:r.sp.filter(x=>x[0]<d),fromSplit:r.d,src:r}}}
+  return b}
+/* Collection "pb" : meilleurs temps relevés une fois sur swimrankings, { athlete, swrid, fetched, rows:[{d,s,c,t,date,city,meet}] }.
+   Ils complètent les courses du carnet sans en faire partie : ils ne comptent que s'ils sont strictement meilleurs ou si l'épreuve manque. */
+function pbBests(b,a,keep){const g=(S.athletes[a]||{}).gender;
+  for(const x of(S.pb[a]&&S.pb[a].rows)||[]){if(!keep(x))continue;const k=x.d+"-"+x.s;
+    if(!b[k]||x.t<b[k].t)b[k]={...x,r:"",st:"",sp:[],p:aquaPts(g,x.c,x.d,x.s,x.t)||0,fromPb:true,meet:{key:"pb:"+x.date,name:x.meet||"swimrankings",city:x.city||"",course:x.c,date:x.date}}}
+  return b}
 function maxPts(races){let b=null;for(const r of races)if(valid(r)&&(!b||r.p>b.p))b=r;return b}
 function age(birth,date){if(!birth)return null;return +date.slice(0,4)-+birth.slice(0,4)}
 
@@ -272,7 +289,7 @@ function renderSide(){
   const groups=rosterList();let html="",opts="";
   for(const[g,list]of Object.entries(groups)){if(!list.length)continue;
     html+=`<div class="grp">${g==="Autres"?"Autres":g+" Regio"}</div>`;opts+=`<optgroup label="${esc(g)}">`;
-    for(const[k,a]of list){const best=maxPts(filtered(racesOf(k)));
+    for(const[k,a]of list){const best=maxPts(filtered(racesOf(k)))||S.pb[k];
       html+=`<button class="sw${best?"":" empty"}" data-k="${esc(k)}" aria-current="${k===S.sel}"><span>${esc(a.first)} ${esc(a.last)}</span></button>`;
       opts+=`<option value="${esc(k)}"${k===S.sel?" selected":""}>${esc(a.first)} ${esc(a.last)}</option>`}
     opts+="</optgroup>"}
@@ -285,10 +302,10 @@ $("athSelect").addEventListener("change",e=>{S.sel=e.target.value;S.open=null;sa
 function renderAth(){
   const a=S.athletes[S.sel];
   if(!a){$("athBody").innerHTML=`<div class="card empty-state"><b>Aucun nageur sélectionné</b>Choisis un nageur dans la liste.</div>`;return}
-  const all=racesOf(S.sel),races=filtered(all),b=bests(races);
+  const all=racesOf(S.sel),races=filtered(all),[pFrom,pTo]=periodRange(S.period),b=pbBests(splitBests(races,bests(races),a.gender),S.sel,x=>x.c===S.course&&x.date>=pFrom&&x.date<pTo);
   const keys=Object.keys(b);
   if(S.sort==="points")keys.sort((x,y)=>b[y].p-b[x].p);else keys.sort((x,y)=>evSortKey(x)-evSortKey(y));
-  const top=maxPts(races),nMeets=new Set(races.map(r=>r.meet.key)).size;
+  const top=maxPts([...races,...Object.values(b)]),nMeets=new Set(races.map(r=>r.meet.key)).size;
   const sr=a.swrid?`<a href="https://www.swimrankings.net/index.php?page=athleteDetail&athleteId=${esc(a.swrid)}" target="_blank" rel="noopener">swimrankings ↗</a>`:"";
   const ageNow=a.birth?`${a.birth.slice(0,4)} · ${today().getFullYear()-+a.birth.slice(0,4)} ans cette année`:"année de naissance inconnue";
   let html=`<div class="ahead"><div><h2>${esc(a.first)} ${esc(a.last)}</h2>
@@ -296,15 +313,15 @@ function renderAth(){
     <div class="kpis"><div class="kpi"><b>${top?top.p:"—"}</b><span>Meilleurs pts</span></div>
     <div class="kpi"><b>${top?evName(top.d,top.s):"—"}</b><span>Meilleure course</span></div>
     <div class="kpi"><b>${races.filter(valid).length}</b><span>Courses · ${nMeets} compét.</span></div></div></div>`;
-  if(!all.length){html+=`<div class="card empty-state"><b>Aucun résultat importé</b>Les temps de ${esc(a.first)} apparaîtront après l'import d'un Lenex où il ou elle a nagé.</div>`;$("athBody").innerHTML=html;return}
+  if(!all.length&&!keys.length){html+=`<div class="card empty-state"><b>Aucun résultat importé</b>Les temps de ${esc(a.first)} apparaîtront après l'import d'un Lenex où il ou elle a nagé.</div>`;$("athBody").innerHTML=html;return}
   if(!keys.length){html+=`<div class="card empty-state"><b>Aucun temps pour ce filtre</b>Pas de course en ${S.course==="SCM"?"25 m":"50 m"} sur la période choisie. Essaie l'autre bassin ou « À vie ».</div>`;$("athBody").innerHTML=html;return}
   const maxP=Math.max(...keys.map(k=>b[k].p),1);
   html+=`<section><h3 class="sh">Meilleurs temps</h3><div class="card tblwrap"><table><thead><tr><th>Épreuve</th><th class="r">Temps</th><th>Points</th><th>Date</th><th class="hide-sm">Compétition</th><th class="hide-sm">Lieu</th><th></th></tr></thead><tbody>`;
   for(const k of keys){const r=b[k],open=S.open===k;
-    html+=`<tr class="row${open?" open":""}" data-ev="${k}" tabindex="0" aria-expanded="${open}"><td class="ev">${evName(r.d,r.s)}</td><td class="r time">${fmt(r.t)}</td>
+    html+=`<tr class="row${open?" open":""}" data-ev="${k}" tabindex="0" aria-expanded="${open}"><td class="ev">${evName(r.d,r.s)}${r.fromSplit?`<div class="muted" style="font-size:12px;font-weight:400">passage du ${r.fromSplit}</div>`:r.fromPb?`<div class="muted" style="font-size:12px;font-weight:400">swimrankings</div>`:""}</td><td class="r time">${fmt(r.t)}</td>
       <td><span class="ptsbar"><span class="num">${r.p||"—"}</span><i style="width:${Math.round(60*r.p/maxP)}px"></i></span></td>
       <td>${fmtDate(r.date)}</td><td class="hide-sm">${esc(r.meet.name)}</td><td class="hide-sm muted">${esc(r.meet.city)}</td><td class="chev">›</td></tr>`;
-    if(open)html+=`<tr class="detail"><td colspan="7">${detail(r,races.filter(x=>evKey(x)===k))}</td></tr>`}
+    if(open)html+=`<tr class="detail"><td colspan="7">${detail(r,[...races.filter(x=>evKey(x)===k),...(r.fromSplit||r.fromPb?[r]:[])])}</td></tr>`}
   html+=`</tbody></table></div><div class="legend">Clique une épreuve pour voir les temps de passage et toutes les courses de la période. Points AQUA (ex-FINA) au barème en vigueur : 25 m 2026-27, 50 m 2026. Historique Team Manager recalculé sur ce même barème.</div></section>`;
   html+=recent(races,b);
   $("athBody").innerHTML=html;
@@ -321,7 +338,7 @@ function detail(r,hist){
       `</tbody></table><div class="legend">Barre plus longue = segment plus lent (ramené au 50 m). Orange : plus de 3 % au-dessus de l'allure médiane.</div>`;
   }else sp=`<p class="muted">Pas de temps de passage dans le Lenex pour cette course.</p>`;
   const h=[...hist].sort((a,b)=>a.date.localeCompare(b.date));
-  const rows=h.slice().sort((a,b)=>(valid(a)?a.t:1e9)-(valid(b)?b.t:1e9)).map(x=>{const n=noteFor(S.sel,x);return`<tr${n?' class="hasnote"':""}><td>${fmtDate(x.date)}</td><td class="r">${x.st?`<span class="pill dq">${esc(x.st)}</span>`:fmt(x.t)}</td><td class="r">${x.p||""}</td><td class="muted">${esc(x.meet.city)}${x.r&&x.r!=="TIM"?" · "+esc(roundName(x.r)):""}${x.relay?" · 1er relais":""}${LIVE.spLine({...x})}</td></tr>${n?`<tr class="nrow"><td></td><td colspan="3">${noteLine(n)}</td></tr>`:""}`}).join("");
+  const rows=h.slice().sort((a,b)=>(valid(a)?a.t:1e9)-(valid(b)?b.t:1e9)).map(x=>{const n=x.fromSplit||x.fromPb?null:noteFor(S.sel,x);return`<tr${n?' class="hasnote"':""}><td>${fmtDate(x.date)}</td><td class="r">${x.st?`<span class="pill dq">${esc(x.st)}</span>`:fmt(x.t)}</td><td class="r">${x.p||""}</td><td class="muted">${esc(x.meet.city)}${x.r&&x.r!=="TIM"?" · "+esc(roundName(x.r)):""}${x.fromSplit?` · passage du ${x.fromSplit}`:x.fromPb?" · swimrankings":""}${x.relay?" · 1er relais":""}${LIVE.spLine({...x})}</td></tr>${n?`<tr class="nrow"><td></td><td colspan="3">${noteLine(n)}</td></tr>`:""}`}).join("");
   return `<div class="dgrid"><div><h4>Temps de passage · ${fmt(r.t)} (${fmtDate(r.date)})</h4>${sp}</div>
     <div><h4>Toutes les courses (${h.length})</h4>${chart(h.filter(valid))}<table class="splits"><tbody>${rows}</tbody></table></div></div>`;
 }
@@ -348,7 +365,7 @@ function recent(races,b){
     h+=`<tr><td colspan="5" style="background:var(--sunk);font-weight:600">${esc(m.meet.name)} <span class="muted" style="font-weight:400">· ${esc(m.meet.city)} · ${fmtDate(m.meet.date)}</span></td></tr>`;
     const used=new Set();
     for(const r of m.rs.sort((x,y)=>evSortKey(evKey(x))-evSortKey(evKey(y)))){const pb=valid(r)&&b[evKey(r)]===r,n=noteFor(S.sel,r);if(n)used.add(n);
-      h+=`<tr${n?' class="hasnote"':""}><td class="muted">${fmtDate(r.date)}</td><td class="ev">${evName(r.d,r.s)}${r.r&&r.r!=="TIM"?` <span class="muted">${roundName(r.r)}</span>`:""}${r.relay?` <span class="muted">1er relais</span>`:""}</td><td class="r time">${r.st?`<span class="pill dq">${esc(r.st)}</span>`:fmt(r.t)}</td><td class="r">${r.p||""}</td><td>${pb?'<span class="pill">MT</span>':""}</td></tr>${LIVE.spLine(r)?`<tr class="nrow"><td></td><td colspan="4">${LIVE.spLine(r)}</td></tr>`:""}`;
+      h+=`<tr${n?' class="hasnote"':""}><td class="muted">${fmtDate(r.date)}</td><td class="ev">${evName(r.d,r.s)}${r.r&&r.r!=="TIM"?` <span class="muted">${roundName(r.r)}</span>`:""}${r.relay?` <span class="muted">1er relais</span>`:""}</td><td class="r time">${r.st?`<span class="pill dq">${esc(r.st)}</span>`:fmt(r.t)}</td><td class="r">${r.p||""}</td><td>${pb?'<span class="pill">MT</span>':""}${Object.values(b).filter(x=>x.src===r).sort((x,y)=>x.d-y.d).map(x=>`<span class="pill" style="margin-left:4px">MT ${x.d} : ${fmt(x.t)}</span>`).join("")}</td></tr>${LIVE.spLine(r)?`<tr class="nrow"><td></td><td colspan="4">${LIVE.spLine(r)}</td></tr>`:""}`;
       if(n)h+=`<tr class="nrow"><td></td><td colspan="4">${noteLine(n)}</td></tr>`}
     /* Notes sans résultat rattaché : relais, forfaits, ou compétition dont le Lenex des résultats n'a pas la même date. */
     const to=addDays(m.meet.date,5);
@@ -819,12 +836,13 @@ const meetDates=i=>i.end&&i.end!==i.start?`${fmtDate(i.start)} – ${fmtDate(i.e
 /* Meilleur temps avant la compétition, dans un bassin donné. */
 /* Dernière course valide avant la compétition, même épreuve, même bassin. */
 function lastOf(a,d,s,c,before){let b=null;for(const r of racesOf(a))if(valid(r)&&r.d===d&&r.s===s&&r.c===c&&r.date<before&&(!b||r.date>b.date))b=r;return b}
-function mppOf(a,d,s,c,before){let b=null;for(const r of racesOf(a))if(valid(r)&&r.d===d&&r.s===s&&r.c===c&&r.date<before&&(!b||r.t<b.t))b=r;return b}
+/* MPP : mêmes règles que la fiche nageur, un temps de passage peut battre une course complète (splitBests). */
+function mppOf(a,d,s,c,before){const rs=racesOf(a).filter(r=>valid(r)&&r.s===s&&r.c===c&&r.date<before);return pbBests(splitBests(rs,bests(rs),(S.athletes[a]||{}).gender),a,x=>x.s===s&&x.c===c&&x.date<before)[d+"-"+s]||null}
 function resultOf(a,e){const f=e.r==="FIN";return racesOf(a).find(r=>r.date===e.date&&r.d===e.d&&r.s===e.s&&(r.r==="FIN")===f)}
 function splitsTable(r){
   const pts=[...(r.sp||[]).filter(x=>x[0]<r.d),[r.d,r.t]];let pt=0;
   return`<table class="splits"><tbody>${pts.map(([d,t])=>{const seg=t-pt;pt=t;return`<tr><td class="muted">${d} m</td><td class="r">${fmt(t)}</td><td class="r muted">${fmt(seg)}</td></tr>`}).join("")}</tbody></table>`}
-function mppCell(lbl,r){return`<div><dt>${lbl}</dt><dd>${r?fmt(r.t):"—"}${r?`<small>${fmtDate(r.date)}</small>`:""}</dd></div>`}
+function mppCell(lbl,r){return`<div><dt>${lbl}</dt><dd>${r?fmt(r.t):"—"}${r?`<small>${fmtDate(r.date)}${r.fromSplit?` · passage du ${r.fromSplit}`:r.fromPb?" · swimrankings":""}</small>`:""}</dd></div>`}
 function noteBox(id,meta){
   const n=C.notes[id]||{},t=n.tags||{};
   return`<div class="nbox" data-nid="${esc(id)}" data-meta="${esc(JSON.stringify(meta))}"><div class="tags" role="group" aria-label="Exécution">${tagsFor(meta.d,meta.s).map(([k,l])=>{const v=t[k]||0;
@@ -993,6 +1011,7 @@ function refreshNoteBoxes(){document.querySelectorAll("#viewComp .nbox").forEach
   db.collection("tests").onSnapshot(s=>{T.sessions=s.docs.map(d=>({id:d.id,...d.data()}));
     const typing=document.activeElement&&document.activeElement.classList?.contains("tin");
     if(S.view==="tests"&&!typing)renderTests()},e=>console.warn(e));
+  db.collection("pb").onSnapshot(s=>{S.pb={};s.docs.forEach(d=>S.pb[d.id]=d.data());if(gotA&&gotS)render()},e=>console.warn(e));
   db.collection("meetx").onSnapshot(s=>{const n={};s.docs.forEach(d=>{const v=d.data();n[d.id]={dns:v.dns||{},fin:v.fin||{},t:v.t||{}}});C.x=n;
     if(S.view==="comp"&&!typingNote()&&!document.activeElement?.classList?.contains("rt"))renderComp()},e=>console.warn(e));
   db.collection("meets").onSnapshot(s=>{C.meets=s.docs.map(d=>({id:d.id,...d.data()})).filter(m=>m.info&&Array.isArray(m.events)&&Array.isArray(m.entries));
