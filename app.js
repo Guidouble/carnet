@@ -382,6 +382,17 @@ async function autoScan(force){
       delete L.sr[x.id];if(await createFromLive(String(x.id),{silent:true,update:true}))made++}
     if(made&&S.view==="comp")renderComp()}catch(e){}}
 setTimeout(()=>autoScan(),9000);
+/* Compétitions terminées : avant qu'elles quittent l'onglet (le mercredi), les résultats du direct sont relus et enregistrés
+   dans le carnet, même si la compétition n'a jamais été rouverte. Une fois la compétition officielle (status 5), c'est fait une seule fois. */
+async function archivePast(){
+  if(typeof S==="undefined"||!S.db||typeof C==="undefined")return;
+  const done=ls.get("cl-arch",{}),td=todayIso();
+  for(const m of C.meets.filter(x=>x.info&&x.info.end<td&&!done[x.id])){
+    const id=L.links[m.id]!==undefined?L.links[m.id]:await autoLink(m);if(!id){done[m.id]=1;continue}
+    try{while(L.busy)await new Promise(r=>setTimeout(r,500));await refresh(m,true);const st=L.sr[id];
+      if(st&&st.main&&!st.err){await saveToCarnet(m,true);if(+st.main.status===5)done[m.id]=1}}catch(e){}}
+  ls.set("cl-arch",done)}
+setTimeout(()=>archivePast(),15000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)setTimeout(()=>autoScan(),3000)});
 
 /* Création d'une feuille de route à partir du direct (quand aucun Lenex d'engagements n'a été importé). */

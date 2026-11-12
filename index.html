@@ -593,7 +593,7 @@ function renderTests(){
       <button class="btn" id="tCreate">Créer</button><button class="btn ghost" id="tCancel">Annuler</button></div><div id="tNewMsg" class="msg"></div></div>`;
   if(!cur){v.innerHTML=h+`<div class="card empty-state"><b>Aucune séance de test</b>Crée une séance (25 m sprint, 4 × 400 NL ou 600 NL régulier), puis saisis les temps nageur par nageur.</div>`+histBlock();bindTests();return}
   h+=`<div class="ctl">${groupBar()}
-    ${cur.type==="t400"?`<label class="mchk"><input type="checkbox" id="tLac"${T.showLac?" checked":""}> Lactate et FC</label>`:""}
+    ${cur.type==="t400"?`<label class="mchk"><input type="checkbox" id="tLac"${T.showLac?" checked":""}> FC</label>`:""}
     <span id="tStatus" class="msg" style="margin:0">${esc(T.status)}</span></div>
     ${cur.note?`<p class="muted" style="margin:-4px 0 10px">${esc(cur.note)}</p>`:""}`;
   const E=cur.entries||{},rows=testRoster();
@@ -605,10 +605,10 @@ function renderTests(){
       rows.map(([k,a])=>`<tr><td class="nm">${esc(a.first)} ${esc(a.last)}</td>${T25.map(([s])=>`<td>${inp(k,s+"_eau","ss.cc")}</td><td>${inp(k,s+"_plot","ss.cc")}</td>`).join("")}</tr>`).join("")+`</tbody></table>`;
   }else if(cur.type==="t400"){
     const L=T.showLac;
-    t=`<table class="tgrid"><thead><tr><th rowspan="${L?2:1}">Nageur</th>${[1,2,3,4].map(i=>`<th colspan="${L?3:1}" class="c">400 n° ${i}</th>`).join("")}<th rowspan="${L?2:1}" class="c">Accélération 1→4</th></tr>
-      ${L?`<tr>${[1,2,3,4].map(()=>`<th class="c sub">Temps</th><th class="c sub">Lac</th><th class="c sub">FC</th>`).join("")}</tr>`:""}</thead><tbody>`+
+    t=`<table class="tgrid"><thead><tr><th rowspan="${L?2:1}">Nageur</th>${[1,2,3,4].map(i=>`<th colspan="${L?2:1}" class="c">400 n° ${i}</th>`).join("")}<th rowspan="${L?2:1}" class="c">Accélération 1→4</th></tr>
+      ${L?`<tr>${[1,2,3,4].map(()=>`<th class="c sub">Temps</th><th class="c sub">FC</th>`).join("")}</tr>`:""}</thead><tbody>`+
       rows.map(([k,a])=>{const e=E[k]||{};const d=e.r1&&e.r4?e.r4-e.r1:null;
-        return`<tr><td class="nm">${esc(a.first)} ${esc(a.last)}</td>${[1,2,3,4].map(i=>`<td>${inp(k,"r"+i,"m:ss.cc")}<div class="pc" id="pc-${esc(k)}-${i}">${repCalc(e,i)}</div></td>${L?`<td>${inp(k,"l"+i,"mmol")}</td><td>${inp(k,"h"+i,"bpm")}</td>`:""}`).join("")}
+        return`<tr><td class="nm">${esc(a.first)} ${esc(a.last)}</td>${[1,2,3,4].map(i=>`<td>${inp(k,"r"+i,"m:ss.cc")}<div class="pc" id="pc-${esc(k)}-${i}">${repCalc(e,i)}</div></td>${L?`<td>${inp(k,"h"+i,"bpm")}</td>`:""}`).join("")}
         <td class="c" id="d14-${esc(k)}" style="padding-top:10px">${e.r1&&e.r4?stepSpan(e.r1,e.r4):""}</td></tr>`}).join("")+`</tbody></table>`;
   }else{
     t=`<table class="tgrid"><thead><tr><th>Nageur</th><th class="c">Passage 200</th><th class="c">Passage 400</th><th class="c">Temps 600</th><th class="c">Les trois 200</th><th class="c">Écart max–min</th></tr></thead><tbody>`+
@@ -775,8 +775,10 @@ function isoToday(){const t=new Date();return`${t.getFullYear()}-${String(t.getM
 function addDays(d,n){const t=new Date(d+"T12:00:00Z");t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10)}
 const dayLong=d=>new Date(d+"T12:00:00").toLocaleDateString("fr-CH",{weekday:"long",day:"numeric",month:"long"});
 const dayShort=d=>new Date(d+"T12:00:00").toLocaleDateString("fr-CH",{weekday:"short",day:"2-digit",month:"2-digit"});
-/* Une compétition reste dans l'onglet jusqu'à deux jours après sa dernière réunion. */
-const isActive=m=>isoToday()<=addDays(m.info.end,2);
+/* Une compétition reste dans l'onglet jusqu'au mardi qui suit sa dernière réunion ; le mercredi, elle disparaît
+   (ses résultats et ses notes restent dans l'onglet Nageur). */
+function wedAfter(d){let x=addDays(d,1);while(new Date(x+"T12:00:00Z").getUTCDay()!==3)x=addDays(x,1);return x}
+const isActive=m=>isoToday()<wedAfter(m.info.end);
 const evLabel=e=>e.relay?`${e.rc}×${e.d} ${STROKES[e.s]||e.s}`:evName(e.d,e.s);
 const legStroke=(e,pos)=>e.s==="MEDLEY"?LEG_MEDLEY[pos-1]||"FREE":e.s;
 const nidInd=(a,e)=>`${a}__${e.date}__${e.d}-${e.s}${e.r==="FIN"?"-FIN":""}`;
@@ -887,9 +889,9 @@ function relCard(m,e,en,forAth){
 function renderComp(){
   const v=$("viewComp");
   if(!S.db){v.innerHTML=S.dbFailed?`<div class="card empty-state"><b>Base indisponible</b>Ouvre cette page connecté à ton compte Claude pour voir la feuille de route.</div>`:`<div class="card empty-state"><b>Chargement de la compétition…</b>La feuille de route apparaît dès que la base répond.</div>`;return}
-  const ms=[...C.meets].sort((a,b)=>b.info.start.localeCompare(a.info.start)),act=ms.filter(isActive),past=ms.filter(m=>!isActive(m));
-  let m=ms.find(x=>x.id===C.pick)||[...act].sort((a,b)=>a.info.start.localeCompare(b.info.start))[0]||null;
-  const sel=ms.length?`<span><label class="l" for="cMeet">Compétition</label><select id="cMeet" class="tsel">${act.length?"":`<option value=""${m?"":" selected"}>Aucune en cours</option>`}${act.map(x=>`<option value="${esc(x.id)}"${m&&m.id===x.id?" selected":""}>${esc(x.info.name)} · ${fmtDate(x.info.start)}</option>`).join("")}${past.length?`<optgroup label="Terminées">${past.map(x=>`<option value="${esc(x.id)}"${m&&m.id===x.id?" selected":""}>${esc(x.info.name)} · ${fmtDate(x.info.start)}</option>`).join("")}</optgroup>`:""}</select></span>`:"";
+  const act=C.meets.filter(isActive).sort((a,b)=>a.info.start.localeCompare(b.info.start)),ms=act;
+  let m=act.find(x=>x.id===C.pick)||[...act].sort((a,b)=>a.info.start.localeCompare(b.info.start))[0]||null;
+  const sel=ms.length?`<span><label class="l" for="cMeet">Compétition</label><select id="cMeet" class="tsel">${act.length?"":`<option value=""${m?"":" selected"}>Aucune en cours</option>`}${act.map(x=>`<option value="${esc(x.id)}"${m&&m.id===x.id?" selected":""}>${esc(x.info.name)} · ${fmtDate(x.info.start)}</option>`).join("")}</select></span>`:"";
   if(!m){v.innerHTML=`${sel?`<div class="ctl">${sel}</div>`:""}<div class="card empty-state"><b>Aucune compétition en cours</b>Les prochaines compétitions de tes nageurs apparaissent ici toutes seules.${LIVE.pickerHtml()}</div>`;return}
   const evs={};for(const e of m.events)evs[e.id]=e;
   const ents=m.entries.filter(x=>evs[x.ev]),ind=ents.filter(x=>!x.relay),rel=ents.filter(x=>x.relay);
@@ -901,7 +903,7 @@ function renderComp(){
   let h=`<div class="ctl">${sel}<span class="seg" role="group" aria-label="Affichage"><button data-cm="day" aria-pressed="${C.mode==="day"}">Par jour</button><button data-cm="ath" aria-pressed="${C.mode==="ath"}">Par nageur</button></span>
     ${C.confirmDel?`<button class="btn ghost" id="cDel">Confirmer le retrait</button><button class="btn ghost" id="cDelNo">Annuler</button>`:`<button class="btn ghost" id="cDel">Retirer la feuille de route</button>`}</div>
     ${C.confirmDel?`<p class="msg">Seule la feuille de route est retirée. Les notes restent dans les fiches nageurs.</p>`:""}
-    ${LIVE.bar(m)}<div class="ahead"><div><h2>${esc(m.info.name)}</h2><div class="meta"><span>${esc(m.info.city)}</span><span>${meetDates(m.info)}</span><span>Bassin ${m.info.course==="LCM"?"50":"25"} m</span>${isActive(m)?"":`<span class="pill dq">terminée</span>`}</div></div>
+    ${LIVE.bar(m)}<div class="ahead"><div><h2>${esc(m.info.name)}</h2><div class="meta"><span>${esc(m.info.city)}</span><span>${meetDates(m.info)}</span><span>Bassin ${m.info.course==="LCM"?"50":"25"} m</span>${m.info.end<isoToday()?`<span class="pill dq">terminée</span>`:""}</div></div>
     <div class="kpis"><div class="kpi"><b>${plist.length}</b><span>Nageurs</span></div><div class="kpi"><b>${ind.length}</b><span>Départs indiv.</span></div><div class="kpi"><b>${rel.length||LIVE.relayCount(m)}</b><span>Relais</span></div><div class="kpi"><b>${finalsOf(m,evs,ents).length}</b><span>Finales</span></div></div></div>`;
   const sessOf=e=>m.sessions.find(s=>s.n===e.sess&&s.date===e.date)||m.sessions.find(s=>s.n===e.sess)||{};
   const sessHead=s=>`<h3 class="sh">Réunion ${s.n} <span class="muted shm">${s.warm?"échauffement "+s.warm:""}${s.warm&&s.time?" · ":""}${s.time?"début "+s.time:""}</span></h3>`;
@@ -939,7 +941,7 @@ function renderComp(){
   v.querySelectorAll(".ntxt").forEach(autoSize);
   LIVE.restoreOpen();
 }
-function curMeet(){return C.meets.find(x=>x.id===C.pick)||C.meets.filter(isActive).sort((a,b)=>a.info.start.localeCompare(b.info.start))[0]||null}
+function curMeet(){return C.meets.filter(isActive).find(x=>x.id===C.pick)||C.meets.filter(isActive).sort((a,b)=>a.info.start.localeCompare(b.info.start))[0]||null}
 function autoSize(t){t.style.height="auto";t.style.height=Math.max(38,t.scrollHeight+2)+"px"}
 function setCStatus(t,bad){const el=$("cStatus");if(el){el.textContent=t;el.className="msg"+(bad?" err":"")}}
 const typingNote=()=>!!document.activeElement?.classList?.contains("ntxt");
@@ -963,7 +965,7 @@ $("viewComp").addEventListener("click",e=>{
   if(b.dataset.cm){C.mode=b.dataset.cm;saveC();renderComp()}
   else if(b.dataset.cd){C.day=b.dataset.cd;renderComp()}
   else if(b.id==="cDel"){if(!C.confirmDel){C.confirmDel=true;renderComp();return}
-    const m=C.meets.find(x=>x.id===C.pick)||C.meets.filter(isActive).sort((a,b)=>a.info.start.localeCompare(b.info.start))[0];if(!m)return;
+    const m=C.meets.filter(isActive).find(x=>x.id===C.pick)||C.meets.filter(isActive).sort((a,b)=>a.info.start.localeCompare(b.info.start))[0];if(!m)return;
     S.db.collection("meets").doc(m.id).delete().then(()=>{C.confirmDel=false;C.pick=null},err=>{C.confirmDel=false;renderComp();setCStatus("Retrait refusé ("+(err.code||"erreur")+").",true)})}
   else if(b.id==="cDelNo"){C.confirmDel=false;renderComp()}
 });
