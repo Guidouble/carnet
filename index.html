@@ -380,7 +380,7 @@ $("athBody").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e
    Collection "tests" : un document par séance et par type de test, id = AAAA-MM-JJ__type.
    { date, type: "s25"|"t400"|"t600", course: "SCM"|"LCM", note, entries: { <nageur>: { champ: valeur } } }
    s25 : FLY_eau, FLY_plot, BACK_eau, BACK_plot, BREAST_…, FREE_… (centièmes)
-   t400 : r1..r4 (centièmes), l1..l4 (lactate mmol/L), h1..h4 (FC)   ·   t600 : s1 = passage 200, s2 = passage 400, t = temps final 600 (centièmes, cumulés) */
+   t400 : r1..r4 (centièmes), p1..p4 = passage au 200 (cumulé, centièmes), h1..h4 (FC), l1..l4 (lactate, ancien)   ·   t600 : s1 = passage 200, s2 = passage 400, t = temps final 600 (centièmes, cumulés) */
 const TTYPES={s25:"25 m sprint",t400:"4 × 400 NL",t600:"600 NL régulier"};
 /* 600 : trois 200 tirés des passages cumulés ; régularité = écart entre le 200 le plus rapide et le plus lent. */
 function laps600(e){return[e.s1||null,e.s1&&e.s2?e.s2-e.s1:null,e.s2&&e.t?e.t-e.s2:null]}
@@ -403,6 +403,7 @@ function fieldKind(f){return/^[lh]\d$/.test(f)?(f[0]==="l"?"lac":"hr"):"time"}
 function parseField(f,v){v=String(v).trim();if(!v)return null;const k=fieldKind(f);
   if(k==="time"){const t=parseTime(v);if(!(t>0))return NaN;
     if(/^r\d$/.test(f))return t>=18000&&t<=60000?t:NaN;   // 400 : entre 3:00 et 10:00
+    if(/^p\d$/.test(f))return t>=8000&&t<=30000?t:NaN;    // passage au 200 d'un 400 : entre 1:20 et 5:00
     if(f==="s1")return t>=10000&&t<=30000?t:NaN;         // passage 200 : entre 1:40 et 5:00
     if(f==="s2")return t>=20000&&t<=60000?t:NaN;         // passage 400 : entre 3:20 et 10:00
     if(f==="t")return t>=30000&&t<=90000?t:NaN;          // 600 : entre 5:00 et 15:00
@@ -422,8 +423,10 @@ function dSpan(d,small){if(d==null||Number.isNaN(d))return"";const c=d<0?"var(--
 /* Progression d'un 400 au suivant : ▼ = plus rapide (vert, attendu dans un test progressif), ▲ = plus lent (orange). */
 function stepSpan(prev,cur,small){const g=prev-cur,c=g>0?"var(--good)":g<0?"var(--lane)":"var(--muted)";
   return`<span class="dlt" style="color:${c}${small?";font-size:11px":""}">${g>0?"▼ ":g<0?"▲ ":"= "}${g?fmt(Math.abs(g)):""}</span>`}
-function repCalc(e,i){const t=e["r"+i];if(!t)return"";const p=e["r"+(i-1)];
-  return`${pace100(t,400)} /100${i>1&&p?" · "+stepSpan(p,t,true):""}`}
+/* Passage au 200 d'un 400 (p1..p4, cumulé) : 1er 200 / 2e 200 et écart. Négatif (vert) = 2e 200 plus rapide, 400 progressif. */
+function half400(e,i){const p=e["p"+i],t=e["r"+i];if(!p||!t||p>=t)return"";return`200 : ${fmt(p)} / ${fmt(t-p)} ${dSpan(t-2*p,true)}`}
+function repCalc(e,i){const t=e["r"+i];if(!t)return"";const p=e["r"+(i-1)],hf=half400(e,i);
+  return`${pace100(t,400)} /100${i>1&&p?" · "+stepSpan(p,t,true):""}${hf?`<br>${hf}`:""}`}
 const modeBar=()=>`<span class="seg" role="group" aria-label="Mode"><button data-tm="entry" aria-pressed="${T.mode!=="results"}">Saisie</button><button data-tm="results" aria-pressed="${T.mode==="results"}">Résultats</button></span>`;
 const groupBar=()=>`<span><label class="l">Groupe</label><span class="seg" role="group" aria-label="Groupe">${[["all","Tous"],["Elite","Elite"],["Espoir","Espoir"]].map(([k,l])=>`<button data-tg="${k}" aria-pressed="${T.group===k}">${l}</button>`).join("")}</span></span>`;
 /* Indicateurs du 4 × 400 progressif : dernier 400 (capacité), accélération 1→4 (étagement), paliers (régularité). */
@@ -554,7 +557,7 @@ function renderResults(v){
       const ga=[1,2,3,4].map(avg);
       h+=`<div class="card tblwrap"><table class="rtab"><thead><tr><th>Nageur</th>${[1,2,3,4].map(i=>`<th class="r">400 n° ${i}</th>`).join("")}<th class="r">Accélération 1→4</th><th class="r">Paliers</th><th class="r">Allure moy. /100</th></tr></thead><tbody>${
         list.map(({k,a,e})=>`<tr><td class="ev">${esc(a.first)} ${esc(a.last)}</td>${[1,2,3,4].map(i=>{const t=e["r"+i],pr=e["r"+(i-1)];
-            return`<td class="r"><span class="time">${t?fmt(t):"—"}</span><div class="pc">${t?pace100(t,400)+" /100":""}</div>${i>1&&t&&pr?`<div>${stepSpan(pr,t,true)}</div>`:""}${e["l"+i]!=null?`<div class="pc">${e["l"+i]} mmol${e["h"+i]!=null?" · "+e["h"+i]:""}</div>`:e["h"+i]!=null?`<div class="pc">${e["h"+i]} bpm</div>`:""}</td>`}).join("")}
+            return`<td class="r"><span class="time">${t?fmt(t):"—"}</span><div class="pc">${t?pace100(t,400)+" /100":""}</div>${i>1&&t&&pr?`<div>${stepSpan(pr,t,true)}</div>`:""}${half400(e,i)?`<div class="pc">${half400(e,i)}</div>`:""}${e["l"+i]!=null?`<div class="pc">${e["l"+i]} mmol${e["h"+i]!=null?" · "+e["h"+i]:""}</div>`:e["h"+i]!=null?`<div class="pc">${e["h"+i]} bpm</div>`:""}</td>`}).join("")}
             <td class="r">${e.r1&&e.r4?stepSpan(e.r1,e.r4):""}</td><td class="r">${palierSpan(e)}</td><td class="r time">${mean4(e)?pace100(mean4(e),400):"—"}</td></tr>`).join("")}
         <tr class="foot"><td>Moyenne du groupe</td>${ga.map((t,i)=>`<td class="r">${t?fmt(t):"—"}<div class="pc">${t?pace100(t,400)+" /100":""}</div>${i&&t&&ga[i-1]?`<div>${stepSpan(ga[i-1],t,true)}</div>`:""}</td>`).join("")}<td class="r">${ga[0]&&ga[3]?stepSpan(ga[0],ga[3]):""}</td><td></td><td class="r">${(()=>{const m=avgOf(list.map(x=>mean4(x.e)));return m?pace100(m,400):"—"})()}</td></tr></tbody></table></div>`;
     }else if(type==="t600"){
@@ -605,10 +608,10 @@ function renderTests(){
       rows.map(([k,a])=>`<tr><td class="nm">${esc(a.first)} ${esc(a.last)}</td>${T25.map(([s])=>`<td>${inp(k,s+"_eau","ss.cc")}</td><td>${inp(k,s+"_plot","ss.cc")}</td>`).join("")}</tr>`).join("")+`</tbody></table>`;
   }else if(cur.type==="t400"){
     const L=T.showLac;
-    t=`<table class="tgrid"><thead><tr><th rowspan="${L?2:1}">Nageur</th>${[1,2,3,4].map(i=>`<th colspan="${L?2:1}" class="c">400 n° ${i}</th>`).join("")}<th rowspan="${L?2:1}" class="c">Accélération 1→4</th></tr>
-      ${L?`<tr>${[1,2,3,4].map(()=>`<th class="c sub">Temps</th><th class="c sub">FC</th>`).join("")}</tr>`:""}</thead><tbody>`+
+    t=`<table class="tgrid"><thead><tr><th rowspan="2">Nageur</th>${[1,2,3,4].map(i=>`<th colspan="${L?3:2}" class="c">400 n° ${i}</th>`).join("")}<th rowspan="2" class="c">Accélération 1→4</th></tr>
+      <tr>${[1,2,3,4].map(()=>`<th class="c sub">Passage 200</th><th class="c sub">Temps 400</th>${L?`<th class="c sub">FC</th>`:""}`).join("")}</tr></thead><tbody>`+
       rows.map(([k,a])=>{const e=E[k]||{};const d=e.r1&&e.r4?e.r4-e.r1:null;
-        return`<tr><td class="nm">${esc(a.first)} ${esc(a.last)}</td>${[1,2,3,4].map(i=>`<td>${inp(k,"r"+i,"m:ss.cc")}<div class="pc" id="pc-${esc(k)}-${i}">${repCalc(e,i)}</div></td>${L?`<td>${inp(k,"h"+i,"bpm")}</td>`:""}`).join("")}
+        return`<tr><td class="nm">${esc(a.first)} ${esc(a.last)}</td>${[1,2,3,4].map(i=>`<td>${inp(k,"p"+i,"m:ss.cc")}</td><td>${inp(k,"r"+i,"m:ss.cc")}<div class="pc" id="pc-${esc(k)}-${i}">${repCalc(e,i)}</div></td>${L?`<td>${inp(k,"h"+i,"bpm")}</td>`:""}`).join("")}
         <td class="c" id="d14-${esc(k)}" style="padding-top:10px">${e.r1&&e.r4?stepSpan(e.r1,e.r4):""}</td></tr>`}).join("")+`</tbody></table>`;
   }else{
     t=`<table class="tgrid"><thead><tr><th>Nageur</th><th class="c">Passage 200</th><th class="c">Passage 400</th><th class="c">Temps 600</th><th class="c">Les trois 200</th><th class="c">Écart max–min</th></tr></thead><tbody>`+
@@ -632,7 +635,7 @@ function histBlock(){
     h+=`<h4 class="sh" style="font-size:16px;margin:12px 0 6px">25 m sprint</h4><div class="card tblwrap"><table><thead><tr><th>Date</th>${cols.map(([,l])=>`<th class="r">${l}</th>`).join("")}</tr></thead><tbody>${
       s25.slice().reverse().map(s=>`<tr><td>${fmtDate(s.date)} <span class="muted">${s.course==="LCM"?"50 m":"25 m"}</span></td>${cols.map(([f])=>cell(s.entries[k][f],best(s25.filter(x=>x.course===s.course),f))).join("")}</tr>`).join("")}</tbody></table></div>`}
   if(s4.length){h+=`<h4 class="sh" style="font-size:16px;margin:16px 0 6px">4 × 400 NL</h4><div class="card tblwrap"><table><thead><tr><th>Date</th>${[1,2,3,4].map(i=>`<th class="r">400 n° ${i}</th>`).join("")}</tr></thead><tbody>${
-      s4.slice().reverse().map(s=>{const e=s.entries[k];return`<tr><td>${fmtDate(s.date)} <span class="muted">${s.course==="LCM"?"50 m":"25 m"}</span></td>${[1,2,3,4].map(i=>`<td class="r">${e["r"+i]?fmt(e["r"+i]):"—"}${e["l"+i]!=null?` <span class="muted">· ${e["l"+i]} mmol</span>`:""}${e["h"+i]!=null?` <span class="muted">· ${e["h"+i]}</span>`:""}</td>`).join("")}</tr>`}).join("")}</tbody></table></div>`}
+      s4.slice().reverse().map(s=>{const e=s.entries[k];return`<tr><td>${fmtDate(s.date)} <span class="muted">${s.course==="LCM"?"50 m":"25 m"}</span></td>${[1,2,3,4].map(i=>`<td class="r">${e["r"+i]?fmt(e["r"+i]):"—"}${half400(e,i)?`<div class="pc">${half400(e,i)}</div>`:""}${e["l"+i]!=null?` <span class="muted">· ${e["l"+i]} mmol</span>`:""}${e["h"+i]!=null?` <span class="muted">· ${e["h"+i]}</span>`:""}</td>`).join("")}</tr>`}).join("")}</tbody></table></div>`}
   if(s1.length){h+=`<h4 class="sh" style="font-size:16px;margin:16px 0 6px">600 NL régulier</h4><div class="card tblwrap"><table><thead><tr><th>Date</th><th class="r">Les trois 200</th><th class="r">Écart max–min</th><th class="r">Temps 600</th></tr></thead><tbody>${
       s1.slice().reverse().map(s=>{const e=s.entries[k];return`<tr><td>${fmtDate(s.date)} <span class="muted">${s.course==="LCM"?"50 m":"25 m"}</span></td><td class="r">${lapsHtml(e)}</td><td class="r">${spreadSpan(spread600(e))}</td><td class="r">${e.t?fmt(e.t):"—"}</td></tr>`}).join("")}</tbody></table></div>`}
   return h+`<div class="legend">En vert : meilleur temps du nageur sur ce test (25 m : comparé dans le même bassin).</div></section>`;
@@ -660,12 +663,14 @@ function bindTests(){
   $("tHist")?.addEventListener("change",e=>{T.hist=e.target.value;saveT();renderTests()});
   v.querySelectorAll(".tin").forEach(i=>{
     i.addEventListener("change",()=>{const k=i.dataset.k,f=i.dataset.f,val=parseField(f,i.value);
-      if(Number.isNaN(val)){i.classList.add("bad");setStatus(fieldKind(f)==="time"?(/^r\d$/.test(f)?"Temps de 400 attendu entre 3:00 et 10:00 (ex. 4:32.10).":f==="s1"?"Passage au 200 attendu entre 1:40 et 5:00.":f==="s2"?"Passage au 400 attendu entre 3:20 et 10:00 (temps cumulé).":f==="t"?"Temps final du 600 attendu entre 5:00 et 15:00 (ex. 7:45.3).":"Temps de 25 m attendu entre 8 et 60 s (ex. 13.45)."):fieldKind(f)==="lac"?"Lactate attendu entre 0 et 30 mmol/L.":"FC attendue entre 40 et 230.",true);return}
+      if(Number.isNaN(val)){i.classList.add("bad");setStatus(fieldKind(f)==="time"?(/^r\d$/.test(f)?"Temps de 400 attendu entre 3:00 et 10:00 (ex. 4:32.10).":/^p\d$/.test(f)?"Passage au 200 attendu entre 1:20 et 5:00, plus court que le temps du 400 (ex. 2:15.30).":f==="s1"?"Passage au 200 attendu entre 1:40 et 5:00.":f==="s2"?"Passage au 400 attendu entre 3:20 et 10:00 (temps cumulé).":f==="t"?"Temps final du 600 attendu entre 5:00 et 15:00 (ex. 7:45.3).":"Temps de 25 m attendu entre 8 et 60 s (ex. 13.45)."):fieldKind(f)==="lac"?"Lactate attendu entre 0 et 30 mmol/L.":"FC attendue entre 40 et 230.",true);return}
+      if(/^[rp]\d$/.test(f)&&val!=null){const c0=T.sessions.find(s=>s.id===T.cur),e0=(c0&&c0.entries&&c0.entries[k])||{},n=f.slice(1),pp=f[0]==="p"?val:e0["p"+n],rr=f[0]==="r"?val:e0["r"+n];
+        if(pp&&rr&&(pp>=rr||pp<rr*.4)){i.classList.add("bad");setStatus("Le passage au 200 doit être plus court que le temps du 400, et en être au moins 40 %.",true);return}}
       i.classList.remove("bad");i.value=showField(f,val);
       const cur=T.sessions.find(s=>s.id===T.cur);if(cur)cur.entries={...(cur.entries||{}),[k]:{...(cur.entries?.[k]||{}),[f]:val}};
       writeEntry(T.cur,k,f,val);
       if(cur&&/^(s1|s2|t)$/.test(f)){const e=cur.entries[k]||{};const l=document.getElementById(`l6-${k}`),sp=document.getElementById(`sp-${k}`);if(l)l.innerHTML=lapsHtml(e);if(sp)sp.innerHTML=spreadSpan(spread600(e))}
-      if(cur&&/^r\d$/.test(f)){const e=cur.entries[k]||{};for(const j of[1,2,3,4]){const el=document.getElementById(`pc-${k}-${j}`);if(el)el.innerHTML=repCalc(e,j)}
+      if(cur&&/^[rp]\d$/.test(f)){const e=cur.entries[k]||{};for(const j of[1,2,3,4]){const el=document.getElementById(`pc-${k}-${j}`);if(el)el.innerHTML=repCalc(e,j)}
         const d=document.getElementById(`d14-${k}`);if(d)d.innerHTML=e.r1&&e.r4?stepSpan(e.r1,e.r4):""}});
     i.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();const all=[...v.querySelectorAll(".tin")],n=all[all.indexOf(i)+1];if(n)n.focus();else i.blur()}});
   });
