@@ -390,7 +390,7 @@ function lapsHtml(e){const l=laps600(e);return l.map((x,i)=>x?`${fmt(x)}${i&&l[0
 const T25=[["FLY","Pap"],["BACK","Dos"],["BREAST","Brasse"],["FREE","NL"]];
 const T={sessions:[],cur:null,group:"all",hist:null,showLac:true,confirmDel:false,status:""};
 try{Object.assign(T,JSON.parse(localStorage.getItem("ct-tests")||"{}"),{sessions:[],confirmDel:false,status:""})}catch(e){}
-function saveT(){try{localStorage.setItem("ct-tests",JSON.stringify({cur:T.cur,group:T.group,hist:T.hist,showLac:T.showLac,mode:T.mode,rtype:T.rtype,cmpA:T.cmpA,cmpB:T.cmpB}))}catch(e){}}
+function saveT(){try{localStorage.setItem("ct-tests",JSON.stringify({cur:T.cur,group:T.group,hist:T.hist,showLac:T.showLac,mode:T.mode,rtype:T.rtype}))}catch(e){}}
 function parseTime(s){
   s=String(s).trim().replace(/,/g,".").replace(/'/g,":");if(!s)return null;let m;
   if((m=s.match(/^(\d+)[:.](\d{1,2})\.(\d{1,2})$/)))return(+m[1]*60+ +m[2])*100+ +m[3].padEnd(2,"0");
@@ -436,40 +436,76 @@ const avgOf=a=>{a=a.filter(x=>x!=null);return a.length?Math.round(a.reduce((x,y)
 function paliers(e){if(![1,2,3,4].every(i=>e["r"+i]))return null;return[1,2,3].filter(i=>e["r"+i]-e["r"+(i+1)]>=STEP_MIN).length}
 function palierSpan(e){const n=paliers(e);if(n==null)return'<span class="muted">—</span>';return`<span class="dlt" style="color:${n===3?"var(--good)":"var(--lane)"}">${n}/3</span>`}
 function profileSvg(a,b){const vals=[...a,...b].filter(Boolean);if(vals.length<2)return"";const mn=Math.min(...vals),mx=Math.max(...vals),sp=Math.max(mx-mn,1);
-  const W=110,H=38,X=i=>6+i*(W-12)/3,Y=t=>4+(H-8)*(t-mn)/sp;
+  const n=Math.max(a.length,b.length),W=110,H=38,X=i=>6+i*(W-12)/(n-1),Y=t=>4+(H-8)*(t-mn)/sp;
   const line=(arr,st,dash)=>{const pts=arr.map((t,i)=>t?[X(i),Y(t)]:null).filter(Boolean);if(pts.length<2)return"";
     return`<polyline points="${pts.map(p=>p.map(x=>x.toFixed(1)).join(",")).join(" ")}" fill="none" stroke="${st}" stroke-width="2" ${dash?'stroke-dasharray="3 3"':""}/>`+pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.2" fill="${st}"/>`).join("")};
-  return`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Profil des 4 temps">${line(a,"var(--muted)",true)}${line(b,"var(--accent)")}</svg>`}
+  return`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Profil des temps">${line(a,"var(--muted)",true)}${line(b,"var(--accent)")}</svg>`}
 function statusOf(ea,eb){if(!ea.r4||!eb.r4)return null;const d=ea.r4-eb.r4,amp=x=>x.r1&&x.r4?x.r1-x.r4:null,da=amp(eb)!=null&&amp(ea)!=null?amp(eb)-amp(ea):null;
   if(d>=STEP_MIN)return["Progrès","var(--good)","var(--good-soft)"];
   if(d<=-STEP_MIN)return["À revoir","var(--lane)","var(--sunk)"];
   if(da!=null&&da>=500)return["Gestion seule","var(--accent)","var(--accent-soft)"];
   return["Stable","var(--muted)","var(--sunk)"]}
-function compareBlock(ss,rows){
-  if(!ss.find(s=>s.id===T.cmpB))T.cmpB=ss[0].id;
-  if(!ss.find(s=>s.id===T.cmpA)||T.cmpA===T.cmpB)T.cmpA=(ss.find(s=>s.id!==T.cmpB&&s.date<ss.find(x=>x.id===T.cmpB).date)||ss.find(s=>s.id!==T.cmpB)).id;
-  const A=ss.find(s=>s.id===T.cmpA),B=ss.find(s=>s.id===T.cmpB);
-  const opt=sel=>ss.map(s=>`<option value="${s.id}"${s.id===sel?" selected":""}>${fmtDate(s.date)} · ${s.course==="LCM"?"50 m":"25 m"}</option>`).join("");
-  const both=rows.filter(([k])=>A.entries?.[k]&&B.entries?.[k]);
+/* ---------- Dernier test vs précédent (même logique pour les trois tests) ----------
+   Séance la plus récente du type ; chaque nageur présent est comparé à SON test précédent du même type
+   (25 m : même bassin, épreuve par épreuve). Un nageur absent à l'avant-dernière séance est comparé à son dernier test disponible. */
+const cmpArrow=(x,y,better)=>{if(x==null||y==null)return"";const d=y-x;if(!d)return'<span class="dlt muted">=</span>';const good=better==="lower"?d<0:d>0;
+  return`<span class="dlt" style="color:${good?"var(--good)":"var(--lane)"}">${d>0?"+":"−"}${fmt(Math.abs(d))}</span>`};
+const pillOf=st=>st?`<span class="pill" style="color:${st[1]};background:${st[2]}">${st[0]}</span>`:"";
+function lastPairs(type,rows,has){
+  const ss=T.sessions.filter(s=>s.type===type).sort((a,b)=>b.date.localeCompare(a.date));const B=ss[0];if(!B)return null;
+  const list=[];for(const[k,a]of rows){const eb=B.entries?.[k];if(!eb||!has(eb))continue;
+    const A=ss.find(s=>s.date<B.date&&s.entries?.[k]&&has(s.entries[k]));if(A)list.push({k,a,eb,ea:A.entries[k],A})}
+  return{B,list}}
+const cmpHead=B=>`<section class="cmp"><h3 class="sh">Dernier test vs précédent <span class="muted" style="font-weight:500;font-size:15px">· ${fmtDate(B.date)} · ${B.course==="LCM"?"50 m":"25 m"}</span></h3>`;
+const cmpNone=`<div class="card empty-state">Aucun nageur de ce groupe n'a encore de test précédent à comparer.</div></section>`;
+const nameCell=x=>`<td class="ev">${esc(x.a.first)} ${esc(x.a.last)}<div class="pc">préc. ${fmtDate(x.A.date)}</div></td>`;
+function lastBlock(type,rows){
+  if(type==="t400")return cmp400(rows);if(type==="t600")return cmp600(rows);return cmp25(rows)}
+function cmp400(rows){
+  const r=lastPairs("t400",rows,e=>[1,2,3,4].some(i=>e["r"+i]));if(!r)return"";let h=cmpHead(r.B);if(!r.list.length)return h+cmpNone;
   const amp=e=>e.r1&&e.r4?e.r1-e.r4:null;
-  const arrow=(x,y,better)=>{if(x==null||y==null)return"";const d=y-x;if(!d)return'<span class="dlt muted">=</span>';const good=better==="lower"?d<0:d>0;
-    return`<span class="dlt" style="color:${good?"var(--good)":"var(--lane)"}">${d>0?"+":"−"}${fmt(Math.abs(d))}</span>`};
-  let h=`<section class="cmp"><div class="ctl" style="margin-bottom:8px"><h3 class="sh" style="margin:0">Comparer deux séances</h3>
-    <span><label class="l" for="cmpA">Avant</label><select id="cmpA" class="tsel">${opt(T.cmpA)}</select></span>
-    <span><label class="l" for="cmpB">Après</label><select id="cmpB" class="tsel">${opt(T.cmpB)}</select></span></div>`;
-  if(!both.length)return h+`<div class="card empty-state">Aucun nageur de ce groupe n'a fait les deux séances.</div></section>`;
-  const list=both.map(([k,a])=>({k,a,ea:A.entries[k],eb:B.entries[k]})).sort((x,y)=>{const o=r=>["Progrès","Gestion seule","Stable","À revoir"].indexOf(r?.[0]??"");return o(statusOf(x.ea,x.eb))-o(statusOf(y.ea,y.eb))||(x.eb.r4??1e9)-(y.eb.r4??1e9)});
+  const list=r.list.sort((x,y)=>{const o=q=>["Progrès","Gestion seule","Stable","À revoir"].indexOf(q?.[0]??"");return o(statusOf(x.ea,x.eb))-o(statusOf(y.ea,y.eb))||(x.eb.r4??1e9)-(y.eb.r4??1e9)});
   h+=`<div class="card tblwrap"><table class="rtab"><thead><tr><th>Nageur</th><th>Profil</th><th class="r">Dernier 400</th><th class="r">Accélération 1→4</th><th class="r">Paliers</th><th class="r">Allure moy. /100</th><th>Statut</th></tr></thead><tbody>${
-    list.map(({a,ea,eb})=>{const st=statusOf(ea,eb),pa=paliers(ea),pb=paliers(eb);
-      return`<tr><td class="ev">${esc(a.first)} ${esc(a.last)}</td><td>${profileSvg([1,2,3,4].map(i=>ea["r"+i]),[1,2,3,4].map(i=>eb["r"+i]))}</td>
-      <td class="r"><span class="muted">${ea.r4?fmt(ea.r4):"—"} →</span> <span class="time">${eb.r4?fmt(eb.r4):"—"}</span><div>${arrow(ea.r4,eb.r4,"lower")}</div></td>
-      <td class="r"><span class="muted">${amp(ea)!=null?fmt(Math.abs(amp(ea)))+(amp(ea)<0?" ▲":""):"—"} →</span> ${amp(eb)!=null?fmt(Math.abs(amp(eb)))+(amp(eb)<0?" ▲":""):"—"}<div>${arrow(amp(ea),amp(eb),"higher")}</div></td>
+    list.map(x=>{const{ea,eb}=x,pa=paliers(ea),pb=paliers(eb);
+      return`<tr>${nameCell(x)}<td>${profileSvg([1,2,3,4].map(i=>ea["r"+i]),[1,2,3,4].map(i=>eb["r"+i]))}</td>
+      <td class="r"><span class="muted">${ea.r4?fmt(ea.r4):"—"} →</span> <span class="time">${eb.r4?fmt(eb.r4):"—"}</span><div>${cmpArrow(ea.r4,eb.r4,"lower")}</div></td>
+      <td class="r"><span class="muted">${amp(ea)!=null?fmt(Math.abs(amp(ea)))+(amp(ea)<0?" ▲":""):"—"} →</span> ${amp(eb)!=null?fmt(Math.abs(amp(eb)))+(amp(eb)<0?" ▲":""):"—"}<div>${cmpArrow(amp(ea),amp(eb),"higher")}</div></td>
       <td class="r"><span class="muted">${pa??"—"}/3 →</span> ${pb??"—"}/3</td>
-      <td class="r"><span class="muted">${mean4(ea)?pace100(mean4(ea),400):"—"} →</span> <span class="time">${mean4(eb)?pace100(mean4(eb),400):"—"}</span><div>${mean4(ea)&&mean4(eb)?arrow(Math.round(mean4(ea)/4),Math.round(mean4(eb)/4),"lower"):""}</div></td>
-      <td>${st?`<span class="pill" style="color:${st[1]};background:${st[2]}">${st[0]}</span>`:""}</td></tr>`}).join("")}</tbody></table></div>
-    <div class="legend">Profil : les 4 temps, plus haut = plus rapide ; gris pointillé = avant, bleu = après. Statut : <b>Progrès</b> = dernier 400 au moins 1 s plus rapide ; <b>Gestion seule</b> = dernier 400 stable (± 1 s) mais au moins 5 s d'accélération en plus ; <b>À revoir</b> = dernier 400 plus lent d'au moins 1 s. ▲ = le nageur a ralenti du 1er au 4e. Allure moy. /100 = moyenne des quatre 400 ramenée au 100 m.</div></section>`;
-  return h;
-}
+      <td class="r"><span class="muted">${mean4(ea)?pace100(mean4(ea),400):"—"} →</span> <span class="time">${mean4(eb)?pace100(mean4(eb),400):"—"}</span><div>${mean4(ea)&&mean4(eb)?cmpArrow(Math.round(mean4(ea)/4),Math.round(mean4(eb)/4),"lower"):""}</div></td>
+      <td>${pillOf(statusOf(ea,eb))}</td></tr>`}).join("")}</tbody></table></div>
+    <div class="legend">Chaque nageur de la dernière séance est comparé à son 4 × 400 précédent (date sous le nom). Profil : les 4 temps, plus haut = plus rapide ; gris pointillé = précédent, bleu = dernier. Statut : <b>Progrès</b> = dernier 400 au moins 1 s plus rapide ; <b>Gestion seule</b> = dernier 400 stable (± 1 s) mais au moins 5 s d'accélération en plus ; <b>À revoir</b> = dernier 400 plus lent d'au moins 1 s. ▲ = le nageur a ralenti du 1er au 4e. Allure moy. /100 = moyenne des quatre 400 ramenée au 100 m.</div></section>`;
+  return h}
+function status600(ea,eb){if(!ea.t||!eb.t)return null;const d=ea.t-eb.t,sa=spread600(ea),sb=spread600(eb);
+  if(d>=STEP_MIN)return["Progrès","var(--good)","var(--good-soft)"];
+  if(d<=-STEP_MIN)return["À revoir","var(--lane)","var(--sunk)"];
+  if(sa!=null&&sb!=null&&sa-sb>=STEP_MIN)return["Plus régulier","var(--accent)","var(--accent-soft)"];
+  return["Stable","var(--muted)","var(--sunk)"]}
+function cmp600(rows){
+  const r=lastPairs("t600",rows,e=>e.t||e.s1||e.s2);if(!r)return"";let h=cmpHead(r.B);if(!r.list.length)return h+cmpNone;
+  const list=r.list.sort((x,y)=>{const o=q=>["Progrès","Plus régulier","Stable","À revoir"].indexOf(q?.[0]??"");return o(status600(x.ea,x.eb))-o(status600(y.ea,y.eb))||(x.eb.t??1e9)-(y.eb.t??1e9)});
+  h+=`<div class="card tblwrap"><table class="rtab"><thead><tr><th>Nageur</th><th>Profil</th><th class="r">Temps 600</th><th class="r">Écart max–min</th><th class="r">Allure moy. /100</th><th>Statut</th></tr></thead><tbody>${
+    list.map(x=>{const{ea,eb}=x,sa=spread600(ea),sb=spread600(eb);
+      return`<tr>${nameCell(x)}<td>${profileSvg(laps600(ea),laps600(eb))}</td>
+      <td class="r"><span class="muted">${ea.t?fmt(ea.t):"—"} →</span> <span class="time">${eb.t?fmt(eb.t):"—"}</span><div>${cmpArrow(ea.t,eb.t,"lower")}</div></td>
+      <td class="r"><span class="muted">${sa!=null?fmt(sa):"—"} →</span> ${sb!=null?fmt(sb):"—"}<div>${cmpArrow(sa,sb,"lower")}</div></td>
+      <td class="r"><span class="muted">${ea.t?pace100(ea.t,600):"—"} →</span> <span class="time">${eb.t?pace100(eb.t,600):"—"}</span><div>${ea.t&&eb.t?cmpArrow(Math.round(ea.t/6),Math.round(eb.t/6),"lower"):""}</div></td>
+      <td>${pillOf(status600(ea,eb))}</td></tr>`}).join("")}</tbody></table></div>
+    <div class="legend">Chaque nageur de la dernière séance est comparé à son 600 précédent (date sous le nom). Profil : les trois 200, plus haut = plus rapide ; gris pointillé = précédent, bleu = dernier. Statut : <b>Progrès</b> = 600 au moins 1 s plus rapide ; <b>Plus régulier</b> = temps stable (± 1 s) mais écart max–min réduit d'au moins 1 s ; <b>À revoir</b> = 600 plus lent d'au moins 1 s.</div></section>`;
+  return h}
+function cmp25(rows){
+  const ss=T.sessions.filter(s=>s.type==="s25").sort((a,b)=>b.date.localeCompare(a.date));const B=ss[0];if(!B)return"";
+  const cols=T25.flatMap(([st])=>[st+"_eau",st+"_plot"]);
+  const prev=(k,f)=>ss.find(s=>s.date<B.date&&s.course===B.course&&s.entries?.[k]?.[f]);
+  const list=[];for(const[k,a]of rows){const eb=B.entries?.[k];if(!eb)continue;const P=Object.fromEntries(cols.map(f=>[f,eb[f]?prev(k,f):null]));
+    if(cols.some(f=>P[f]))list.push({k,a,eb,P})}
+  let h=cmpHead(B);if(!list.length)return h+cmpNone;
+  const cell=(x,f)=>{const v=x.eb[f],ps=x.P[f],pv=ps?.entries[x.k][f];if(!v)return`<td class="r muted">—</td>`;
+    return`<td class="r"${ps?` title="préc. ${fmt(pv)} · ${fmtDate(ps.date)}"`:""}><span class="time">${fmt(v)}</span>${ps?`<div><span class="muted" style="font-size:11px">${fmt(pv)}</span> ${dSpan(v-pv,true)}</div>`:'<div class="pc">—</div>'}</td>`};
+  h+=`<div class="card tblwrap"><table class="rtab"><thead><tr><th rowspan="2">Nageur</th>${T25.map(([,l])=>`<th colspan="2" class="c">${l}</th>`).join("")}</tr><tr>${T25.map(([st])=>st==="BACK"?`<th class="r sub">Poussée</th><th class="r sub">Départ</th>`:`<th class="r sub">Eau</th><th class="r sub">Plot</th>`).join("")}</tr></thead><tbody>${
+    list.map(x=>{const ds=[...new Set(cols.map(f=>x.P[f]?.date).filter(Boolean))].sort();
+      return`<tr><td class="ev">${esc(x.a.first)} ${esc(x.a.last)}<div class="pc">préc. ${ds.map(fmtDate).join(", ")}</div></td>${cols.map(f=>cell(x,f)).join("")}</tr>`}).join("")}</tbody></table></div>
+    <div class="legend">Chaque temps de la dernière séance est comparé au précédent du nageur sur la même épreuve, dans le même bassin (en petit : temps précédent et écart ; vert = plus rapide). Au chrono manuel, un écart de moins de 0.1–0.2 s n'est pas interprétable.</div></section>`;
+  return h}
 /* ---------- profil vitesse / endurance ----------
    Vitesse de sprint : 25 m NL départ plot. Vitesse d'endurance : 600 NL complet (Elite) ou dernier 400 du 4 × 400 (Espoir).
    Chaque test d'endurance est associé au 25 m du même nageur le plus proche dans le temps, à 6 semaines au plus. */
@@ -547,7 +583,7 @@ function renderResults(v){
   let h=`<div class="ctl">${modeBar()}<span><label class="l">Test</label><span class="seg" role="group" aria-label="Type de test">${Object.entries(RTYPES).map(([k,l])=>`<button data-rt="${k}" aria-pressed="${type===k}">${l}</button>`).join("")}</span></span>${groupBar()}</div>`;
   if(!ss.length){v.innerHTML=h+`<div class="card empty-state"><b>Aucune séance ${esc(TTYPES[type])}</b>Passe en mode Saisie pour créer une séance.</div>`;bindTests();return}
   const prevOf=(s,k)=>T.sessions.filter(x=>x.type===type&&x.date<s.date&&x.entries?.[k]).sort((a,b)=>b.date.localeCompare(a.date))[0];
-  if(type==="t400"&&ss.length>=2)h+=compareBlock(ss,rows);
+  if(ss.length>=2)h+=lastBlock(type,rows);
   for(const s of ss){const E=s.entries||{};const present=rows.filter(([k])=>E[k]&&Object.values(E[k]).some(x=>x!=null));
     h+=`<section style="margin-top:18px"><h3 class="sh">${fmtDate(s.date)} <span class="muted" style="font-weight:500;font-size:15px">· ${s.course==="LCM"?"50 m":"25 m"} · ${present.length} nageur(s)${s.note?" · "+esc(s.note):""}</span></h3>`;
     if(!present.length){h+=`<div class="card empty-state">Aucun résultat pour ce groupe.</div></section>`;continue}
@@ -645,8 +681,6 @@ function bindTests(){
   $("tSel")?.addEventListener("change",e=>{T.cur=e.target.value;T.confirmDel=false;saveT();renderTests()});
   v.querySelectorAll("[data-tm]").forEach(b=>b.onclick=()=>{T.mode=b.dataset.tm;saveT();renderTests()});
   v.querySelectorAll("[data-rt]").forEach(b=>b.onclick=()=>{T.rtype=b.dataset.rt;saveT();renderTests()});
-  $("cmpA")?.addEventListener("change",e=>{T.cmpA=e.target.value;saveT();renderTests()});
-  $("cmpB")?.addEventListener("change",e=>{T.cmpB=e.target.value;saveT();renderTests()});
   v.querySelectorAll("[data-tg]").forEach(b=>b.onclick=()=>{T.group=b.dataset.tg;saveT();renderTests()});
   if(!$("tNewBtn"))return;
   $("tNewBtn").onclick=()=>{$("tNew").hidden=false;$("tDate").focus()};
