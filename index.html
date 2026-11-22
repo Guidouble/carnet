@@ -175,6 +175,11 @@ tr.hasnote td{border-bottom:0}
 .cbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .ccard.dns h4{color:var(--muted);text-decoration:line-through}
 .ccard.fin{border-color:var(--accent)}
+.svb{border-top:1px dashed var(--line);padding-top:8px;margin-top:8px}
+.svrow{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:13px}
+.svrow label{display:inline-flex;gap:5px;align-items:center;font-variant-numeric:tabular-nums}
+.tin.svin{width:72px;font-size:16px;min-height:36px}
+.svt{width:100%;margin-top:6px}.svt td,.svt th{padding:3px 4px;font-size:13px}.svt td:first-child{white-space:normal}
 .tin.rt{width:96px;font-family:var(--display);font-size:17px;font-weight:600}
 </style>
 
@@ -895,10 +900,36 @@ function splitsTable(r){
   const pts=[...(r.sp||[]).filter(x=>x[0]<r.d),[r.d,r.t]];let pt=0;
   return`<table class="splits"><tbody>${pts.map(([d,t])=>{const seg=t-pt;pt=t;return`<tr><td class="muted">${d} m</td><td class="r">${fmt(t)}</td><td class="r muted">${fmt(seg)}</td></tr>`}).join("")}</tbody></table>`}
 function mppCell(lbl,r){return`<div><dt>${lbl}</dt><dd>${r?fmt(r.t):"—"}${r?`<small>${fmtDate(r.date)}${r.fromSplit?` · passage du ${r.fromSplit}`:r.fromPb?" · swimrankings":""}</small>`:""}</dd></div>`}
-function noteBox(id,meta){
+/* Passages vidéo 15 / 35 / 65 / 85 m (50 et 100 m, tout bassin) : temps cumulés depuis le signal, en centièmes,
+   enregistrés dans la note de la course (champ sv). Découpage : Départ (0–15), Virage (segment qui contient un mur),
+   Nage (segment sans mur), Finish (dernier segment). Le temps officiel au mur, s'il existe, coupe le virage en entrée / sortie. */
+const SVM=d=>+d===50?[15,35]:+d===100?[15,35,65,85]:[];
+const SVL={dep:"Départ",vir:"Virage",nage:"Nage",fin:"Finish"};
+function svPhases(d,c,T,sv,sp){d=+d;
+  const L=c==="LCM"?50:25,P={0:0};for(const[x,t]of sp||[])if(x%L===0&&x<d)P[x]=t;if(T)P[d]=T;
+  const V={...P};for(const k of SVM(d))if(sv&&sv[k])V[k]=sv[k];
+  const B=[0,...SVM(d),d],out=[];
+  for(let i=1;i<B.length;i++){const a=B[i-1],b=B[i],w=[];for(let x=L;x<d;x+=L)if(x>a&&x<b)w.push(x);
+    const k=a===0?"dep":b===d?"fin":w.length?"vir":"nage",t=V[a]!=null&&V[b]!=null?V[b]-V[a]:null;
+    const sub=k==="vir"&&w.length===1&&P[w[0]]!=null&&V[a]!=null&&V[b]!=null?[P[w[0]]-V[a],V[b]-P[w[0]]]:null;
+    out.push({k,a,b,t,w:w[0],sub})}
+  return out}
+/* Analyse précédente du même nageur : même épreuve, même bassin, avant cette course. */
+function svPrev(a,d,s,c,date,id){let b=null;
+  for(const[k,n]of Object.entries(C.notes))if(k!==id&&n.a===a&&!n.relay&&+n.d===+d&&n.s===s&&n.meet&&n.meet.course===c&&n.date<=date&&n.sv&&SVM(d).some(x=>n.sv[x])&&(n.date<date||(n.r!=="FIN"&&id.endsWith("-FIN")))&&(!b||n.date>b.date||(n.date===b.date&&n.r==="FIN")))b=n;
+  if(!b)return null;const r=racesOf(a).find(x=>x.date===b.date&&+x.d===+d&&x.s===s&&(x.r==="FIN")===(b.r==="FIN"));
+  return{n:b,ph:svPhases(d,c,r&&valid(r)?r.t:null,b.sv,r?r.sp:[])}}
+function svRes(id,meta,ctx){const n=C.notes[id]||{},sv=n.sv||{};if(!SVM(meta.d).some(x=>sv[x]))return"";
+  const ph=svPhases(meta.d,ctx.c,ctx.T,sv,ctx.sp),pv=svPrev(meta.a,meta.d,meta.s,ctx.c,meta.date,id);
+  return`<table class="splits svt"><thead><tr><th class="muted">Phase</th><th class="r muted">Temps</th><th class="r muted">m/s</th>${pv?`<th class="r muted">vs ${fmtDate(pv.n.date).slice(0,5)}</th>`:""}</tr></thead><tbody>${ph.map((x,i)=>{const p=pv&&pv.ph[i];
+    return`<tr><td>${SVL[x.k]} <span class="muted">${x.a}–${x.b}</span>${x.sub?`<div class="pc" style="text-align:left">entrée ${fmt(x.sub[0])} · sortie ${fmt(x.sub[1])}${p&&p.sub?` <span class="muted">(${fmt(p.sub[0])} · ${fmt(p.sub[1])})</span>`:""}</div>`:""}</td>
+    <td class="r">${x.t!=null?fmt(x.t):"—"}</td><td class="r">${x.t?((x.b-x.a)/(x.t/100)).toFixed(2):""}</td>${pv?`<td class="r">${x.t!=null&&p&&p.t!=null?dSpan(x.t-p.t,true):""}</td>`:""}</tr>`}).join("")}</tbody></table>`}
+function svBlock(id,meta,ctx){if(!ctx||meta.relay||!SVM(meta.d).length)return"";const sv=(C.notes[id]||{}).sv||{};
+  return`<div class="svb" data-ctx="${esc(JSON.stringify(ctx))}"><div class="svrow"><span class="muted">Passages vidéo</span>${SVM(meta.d).map(x=>`<label>${x}<input class="tin svin" data-m="${x}" inputmode="decimal" autocomplete="off" placeholder="ss.cc" value="${sv[x]?fmt(sv[x]):""}" aria-label="Temps au ${x} m"></label>`).join("")}</div><div class="svres">${svRes(id,meta,ctx)}</div></div>`}
+function noteBox(id,meta,svctx){
   const n=C.notes[id]||{},t=n.tags||{};
   return`<div class="nbox" data-nid="${esc(id)}" data-meta="${esc(JSON.stringify(meta))}"><div class="tags" role="group" aria-label="Exécution">${tagsFor(meta.d,meta.s).map(([k,l])=>{const v=t[k]||0;
-    return`<button type="button" class="tag${v>0?" plus":v<0?" minus":""}" data-tag="${k}" aria-label="${l} : ${v>0?"réussi":v<0?"à travailler":"non noté"}">${l}<span>${v>0?" +":v<0?" −":""}</span></button>`}).join("")}${+meta.d===50&&(meta.s==="FREE"||meta.s==="FLY")?`<span class="respc"><span class="muted">Respi</span><button type="button" class="respb" data-resp="-1" aria-label="Une respiration de moins">−</button><b data-respv>${n.resp||0}</b><button type="button" class="respb" data-resp="1" aria-label="Une respiration de plus">+</button></span>`:""}</div>
+    return`<button type="button" class="tag${v>0?" plus":v<0?" minus":""}" data-tag="${k}" aria-label="${l} : ${v>0?"réussi":v<0?"à travailler":"non noté"}">${l}<span>${v>0?" +":v<0?" −":""}</span></button>`}).join("")}${+meta.d===50&&(meta.s==="FREE"||meta.s==="FLY")?`<span class="respc"><span class="muted">Respi</span><button type="button" class="respb" data-resp="-1" aria-label="Une respiration de moins">−</button><b data-respv>${n.resp||0}</b><button type="button" class="respb" data-resp="1" aria-label="Une respiration de plus">+</button></span>`:""}</div>${svBlock(id,meta,svctx)}
     <textarea class="ntxt" id="nt-${esc(id)}" rows="2" placeholder="Note sur la course">${esc(n.text||"")}</textarea></div>`}
 function noteMeta(m,e,a,ev){return{a,date:e.date,d:e.d,s:e.s,r:e.r,relay:!!e.relay,ev,meet:{key:m.info.key,name:m.info.name,city:m.info.city,course:e.c}}}
 
@@ -921,7 +952,7 @@ function indCard(m,e,en,forAth,srcId){
   const days=[...new Set(m.sessions.map(s=>s.date))];
   const act="";
   const sp=ref&&ref.sp&&ref.sp.length?`<details class="spl"><summary>Passages de la MPP ${c==="SCM"?"25":"50"}</summary>${splitsTable(ref)}</details>`:"";
-  return`<div class="ccard${dns?" dns":""}${e.r==="FIN"?" fin":""}${LIVE.isFresh(m,e,en.a)?" fresh":""}">${head}${forAth&&where?`<div class="muted" style="font-size:13px;margin-top:-4px">${esc(where)}</div>`:""}<dl class="nums">${nums}</dl>${act}${LIVE.extraAny(lv,res,e,ref,sp)}${noteBox(id,noteMeta(m,e,en.a,evLabel(e)+(e.r==="FIN"?" finale":"")))}</div>`}
+  return`<div class="ccard${dns?" dns":""}${e.r==="FIN"?" fin":""}${LIVE.isFresh(m,e,en.a)?" fresh":""}">${head}${forAth&&where?`<div class="muted" style="font-size:13px;margin-top:-4px">${esc(where)}</div>`:""}<dl class="nums">${nums}</dl>${act}${LIVE.extraAny(lv,res,e,ref,sp)}${noteBox(id,noteMeta(m,e,en.a,evLabel(e)+(e.r==="FIN"?" finale":"")),{c,T:lv&&lv.kind==="res"&&lv.swim!=null&&lv.place>0?lv.swim:res&&valid(res)?res.t:null,sp:lv&&lv.kind==="res"?lv.sp:res?res.sp||[]:[]})}</div>`}
 /* Finales ajoutées pendant la compétition : une carte de plus, même épreuve, round FIN. */
 function finalsOf(m,evs,ents){const x=X(m.id),out=[];
   for(const en of ents){if(en.relay)continue;const e=evs[en.ev];if(!e)continue;const f=x.fin[nidInd(en.a,e)];
@@ -994,14 +1025,15 @@ function renderComp(){
 function curMeet(){return C.meets.filter(isActive).find(x=>x.id===C.pick)||C.meets.filter(isActive).sort((a,b)=>a.info.start.localeCompare(b.info.start))[0]||null}
 function autoSize(t){t.style.height="auto";t.style.height=Math.max(38,t.scrollHeight+2)+"px"}
 function setCStatus(t,bad){const el=$("cStatus");if(el){el.textContent=t;el.className="msg"+(bad?" err":"")}}
-const typingNote=()=>!!document.activeElement?.classList?.contains("ntxt");
+const typingNote=()=>{const c=document.activeElement?.classList;return!!c&&(c.contains("ntxt")||c.contains("svin"))};
 const noteQ={},notePend={},noteTimer={};
 function writeNote(box){
   const id=box.dataset.nid,meta=JSON.parse(box.dataset.meta),ta=box.querySelector(".ntxt");
   const cur=C.notes[id]||{},tags=Object.fromEntries(Object.entries(cur.tags||{}).filter(([,v])=>v)),text=(ta?ta.value:cur.text||"").trim();
-  C.notes[id]={...meta,tags,text,resp:+cur.resp||0};notePend[id]=(notePend[id]||0)+1;
-  const ref=S.db.collection("notes").doc(id),empty=!text&&!Object.keys(tags).length&&!cur.resp;
-  noteQ[id]=(noteQ[id]||Promise.resolve()).then(()=>empty?ref.delete():ref.set({...meta,tags,text,resp:+cur.resp||0,upd:new Date().toISOString()}))
+  const sv=cur.sv&&Object.keys(cur.sv).length?{sv:cur.sv}:{};
+  C.notes[id]={...meta,tags,text,resp:+cur.resp||0,...sv};notePend[id]=(notePend[id]||0)+1;
+  const ref=S.db.collection("notes").doc(id),empty=!text&&!Object.keys(tags).length&&!cur.resp&&!sv.sv;
+  noteQ[id]=(noteQ[id]||Promise.resolve()).then(()=>empty?ref.delete():ref.set({...meta,tags,text,resp:+cur.resp||0,...sv,upd:new Date().toISOString()}))
     .then(()=>setCStatus("Note enregistrée"),err=>setCStatus("Note non enregistrée ("+(err.code||"erreur")+"). Modifie-la à nouveau pour réessayer.",true))
     .finally(()=>{notePend[id]--});
 }
@@ -1024,6 +1056,12 @@ $("viewComp").addEventListener("click",e=>{const b=e.target.closest(".cbtn");if(
   else if(b.dataset.fin){const id=b.dataset.fin;writeX(m.id,x=>{if(x.fin[id])delete x.fin[id];else x.fin[id]={date:b.dataset.date}})}
   renderComp()});
 $("viewComp").addEventListener("change",e=>{
+  if(e.target.classList.contains("svin")){const i=e.target,box=i.closest(".nbox"),id=box.dataset.nid,meta=JSON.parse(box.dataset.meta),blk=i.closest(".svb"),ctx=JSON.parse(blk.dataset.ctx),m=+i.dataset.m;
+    const v=i.value.trim()?parseTime(i.value):null,cur=C.notes[id]||{},sv={...(cur.sv||{})};
+    if(v!=null){const lo=[0,...SVM(meta.d).filter(x=>x<m).map(x=>sv[x]).filter(Boolean)],hi=[...SVM(meta.d).filter(x=>x>m).map(x=>sv[x]).filter(Boolean),...(ctx.T?[ctx.T]:[])];
+      if(!(v>=200&&v<=40000)||v<=Math.max(...lo)||(hi.length&&v>=Math.min(...hi))){i.classList.add("bad");setCStatus(`Temps au ${m} m non reconnu ou incohérent : temps cumulé depuis le départ, plus grand que le passage précédent et plus petit que le suivant (ex. 6.85 ou 1:02.40).`,true);return}}
+    i.classList.remove("bad");if(v)sv[m]=v;else delete sv[m];i.value=v?fmt(v):"";
+    C.notes[id]={...cur,sv};writeNote(box);blk.querySelector(".svres").innerHTML=svRes(id,meta,ctx);return}
   if(e.target.classList.contains("rt")){const t=e.target,id=t.dataset.nid,m=curMeet();if(!m)return;const v=t.value.trim()?parseTime(t.value):null;
     if(v!==null&&!(v>=1000&&v<=180000)){t.classList.add("bad");setCStatus("Temps non reconnu. Exemples : 31.45 ou 1:04.32.",true);return}
     t.classList.remove("bad");writeX(m.id,x=>{if(v)x.t[id]=v;else delete x.t[id]});renderComp();return}
@@ -1033,17 +1071,22 @@ $("viewComp").addEventListener("change",e=>{
 });
 $("viewComp").addEventListener("input",e=>{const t=e.target;if(!t.classList.contains("ntxt"))return;autoSize(t);const box=t.closest(".nbox"),id=box.dataset.nid;
   clearTimeout(noteTimer[id]);noteTimer[id]=setTimeout(()=>{noteTimer[id]=null;writeNote(box)},900)});
+$("viewComp").addEventListener("keydown",e=>{const i=e.target;if(e.key!=="Enter"||!i.classList?.contains("svin"))return;e.preventDefault();
+  const all=[...i.closest(".svb").querySelectorAll(".svin")],n=all[all.indexOf(i)+1];if(n)n.focus();else i.blur()});
 $("viewComp").addEventListener("focusout",e=>{const t=e.target;if(!t.classList?.contains("ntxt"))return;const box=t.closest(".nbox"),id=box.dataset.nid;
   if(noteTimer[id]){clearTimeout(noteTimer[id]);noteTimer[id]=null;writeNote(box)}});
 
 /* Notes affichées dans la fiche nageur. */
 function noteLine(n){const t=n.tags||{};
-  return`<span class="nline">${n.resp?`<span class="tg" style="background:var(--sunk)">Respi ${n.resp}</span>`:""}${Object.keys(t).filter(k=>t[k]).map(k=>[k,TAGL[k]||k]).map(([k,l])=>`<span class="tg ${t[k]>0?"plus":"minus"}">${l} ${t[k]>0?"+":"−"}</span>`).join("")}${n.text?`<span>${esc(n.text)}</span>`:""}</span>`}
+  const sv=n.sv&&SVM(n.d).filter(x=>n.sv[x]);
+  return`<span class="nline">${sv&&sv.length?`<span class="tg num" style="background:var(--sunk)">${sv.map(x=>`${x} m ${fmt(n.sv[x])}`).join(" · ")}</span>`:""}${n.resp?`<span class="tg" style="background:var(--sunk)">Respi ${n.resp}</span>`:""}${Object.keys(t).filter(k=>t[k]).map(k=>[k,TAGL[k]||k]).map(([k,l])=>`<span class="tg ${t[k]>0?"plus":"minus"}">${l} ${t[k]>0?"+":"−"}</span>`).join("")}${n.text?`<span>${esc(n.text)}</span>`:""}</span>`}
 function noteFor(a,r){const n=C.notes[`${a}__${r.date}__${r.d}-${r.s}${r.r==="FIN"?"-FIN":""}`];return n&&!n.relay?n:null}
 function refreshNoteBoxes(){document.querySelectorAll("#viewComp .nbox").forEach(box=>{const id=box.dataset.nid;if(notePend[id]>0||noteTimer[id])return;const n=C.notes[id]||{},t=n.tags||{};
   box.querySelectorAll(".tag").forEach(tg=>{const v=t[tg.dataset.tag]||0;tg.className="tag"+(v>0?" plus":v<0?" minus":"");tg.querySelector("span").textContent=v>0?" +":v<0?" −":""});
   const rv=box.querySelector("[data-respv]");if(rv)rv.textContent=n.resp||0;
-  const ta=box.querySelector(".ntxt");if(ta&&document.activeElement!==ta&&ta.value!==(n.text||"")){ta.value=n.text||"";autoSize(ta)}})}
+  const ta=box.querySelector(".ntxt");if(ta&&document.activeElement!==ta&&ta.value!==(n.text||"")){ta.value=n.text||"";autoSize(ta)}
+  const blk=box.querySelector(".svb");if(blk&&!blk.contains(document.activeElement)){const sv=n.sv||{};blk.querySelectorAll(".svin").forEach(i=>{i.value=sv[i.dataset.m]?fmt(sv[i.dataset.m]):"";i.classList.remove("bad")});
+    blk.querySelector(".svres").innerHTML=svRes(id,JSON.parse(box.dataset.meta),JSON.parse(blk.dataset.ctx))}})}
 
 /* ---------- base ---------- */
 (async()=>{
